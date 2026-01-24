@@ -4,59 +4,79 @@ Calculate the shortest bike path between the centers of areas in Jerusalem using
 
 ## Features
 
-- Load bike lanes from Shapefile or GeoJSON
+- Load bike lanes from KML file
 - Load areas (neighborhoods/zones) from Shapefile
 - Calculate centroids of each area
-- Build a graph network from bike lanes
+- Build a network graph from bike lanes using `sfnetworks`
 - Calculate shortest paths between all pairs of area centers
-- Export distance matrix and path geometries
+- Export distance matrix, path geometries, and visualizations
+
+## Data Files
+
+The repository includes Jerusalem data:
+- `bike_lanes_completed.kml` - Completed bike lanes in Jerusalem
+- `bike_lanes_construction.kml` - Bike lanes under construction
+- `jer_areas.shp` - Jerusalem statistical areas shapefile
 
 ## Installation
 
-```bash
-pip install -r requirements.txt
+Install required R packages:
+
+```r
+install.packages(c("sf", "sfnetworks", "tidygraph", "dplyr", "igraph", "tidyr", "ggplot2", "jsonlite"))
 ```
 
 ## Usage
 
-### Basic Usage
+### Running the Script
 
-```bash
-python bike_path_calculator.py <bike_lanes_file> <areas_file>
+```r
+# From R/RStudio
+source("bike_path_calculator.R")
+
+# From command line
+Rscript bike_path_calculator.R
 ```
 
-### Full Options
+### Configuration
 
-```bash
-python bike_path_calculator.py bike_lanes.shp areas.shp \
-    -o ./output \
-    -n name_column \
-    -t 1.0 \
-    --crs EPSG:2039
+Edit the configuration section at the top of `bike_path_calculator.R`:
+
+```r
+# Input files
+BIKE_LANES_FILE <- "bike_lanes_completed.kml"
+AREAS_FILE <- "jer_areas.shp"
+
+# Output directory
+OUTPUT_DIR <- "./output"
+
+# CRS for distance calculations (Israel TM Grid - meters)
+TARGET_CRS <- 2039
 ```
 
-### Arguments
+### Customizing for Your Data
 
-| Argument | Description |
-|----------|-------------|
-| `bike_lanes` | Path to bike lanes file (Shapefile or GeoJSON) |
-| `areas` | Path to areas Shapefile |
-| `-o, --output` | Output directory (default: ./output) |
-| `-n, --name-column` | Column name for area names in areas shapefile |
-| `-t, --tolerance` | Node snapping tolerance in CRS units (default: 1.0) |
-| `--crs` | Target CRS for calculations (default: EPSG:2039 - Israel TM Grid) |
+The script filters Jerusalem areas using `in_jeru == 1`. Modify the `main()` function if your data has different filtering requirements:
+
+```r
+# Load areas with custom filter
+areas <- load_areas(AREAS_FILE, filter_column = "your_column", filter_value = "your_value")
+
+# Or load all areas without filtering
+areas <- load_areas(AREAS_FILE)
+```
 
 ## Input Data Requirements
 
 ### Bike Lanes File
-- Format: Shapefile (.shp) or GeoJSON (.geojson)
+- Format: KML (.kml), Shapefile (.shp), or GeoJSON (.geojson)
 - Geometry: LineString or MultiLineString
 - Should contain the bike lane network as connected line segments
 
 ### Areas File
 - Format: Shapefile (.shp)
 - Geometry: Polygon or MultiPolygon
-- Optionally include a name column to identify areas
+- Optionally include a name column to identify areas (default: `STAT11_HEB`)
 
 ## Output Files
 
@@ -68,26 +88,16 @@ The script generates the following files in the output directory:
 | `shortest_paths.geojson` | GeoJSON with path geometries between all pairs |
 | `area_centers.geojson` | GeoJSON with area centroid locations |
 | `summary.json` | Summary statistics |
-
-## Example
-
-```bash
-# Calculate paths between Jerusalem neighborhoods
-python bike_path_calculator.py \
-    data/jerusalem_bike_lanes.shp \
-    data/jerusalem_neighborhoods.shp \
-    -n NEIGHBORHOOD_NAME \
-    -o results/
-```
+| `network_map.png` | Visualization of the bike network and area centers |
 
 ## Output Example
 
 ### Distance Matrix (CSV)
 ```
-,Area_0,Area_1,Area_2
-Area_0,0.0,1234.5,2345.6
-Area_1,1234.5,0.0,1567.8
-Area_2,2345.6,1567.8,0.0
+area,Area_0,Area_1,Area_2
+Area_0,0,1234.5,2345.6
+Area_1,1234.5,0,1567.8
+Area_2,2345.6,1567.8,0
 ```
 
 ### Summary (JSON)
@@ -95,25 +105,33 @@ Area_2,2345.6,1567.8,0.0
 {
   "total_areas": 10,
   "total_path_pairs": 45,
-  "average_path_length": 3456.78,
-  "max_path_length": 8901.23,
-  "min_path_length": 567.89
+  "connected_pairs": 42,
+  "average_path_length_m": 3456.78,
+  "min_path_length_m": 567.89,
+  "max_path_length_m": 8901.23,
+  "median_path_length_m": 3200.5
 }
 ```
 
 ## Notes
 
 - The script uses EPSG:2039 (Israel TM Grid) by default for accurate distance calculations in meters
-- If areas are not connected via the bike network, those paths will show as infinite distance
-- The tolerance parameter helps connect nearby network segments that should be joined
+- If areas are not connected via the bike network, those paths will show as infinite distance in the matrix
+- The `sfnetworks` package automatically handles network topology and node connectivity
 
 ## Dependencies
 
-- geopandas - Geographic data handling
-- networkx - Graph operations and shortest path algorithms
-- numpy - Numerical operations
-- pandas - Data manipulation
-- shapely - Geometric operations
-- scipy - Spatial indexing (cKDTree)
-- pyproj - Coordinate reference system transformations
-- fiona - Reading geospatial files
+| Package | Purpose |
+|---------|---------|
+| `sf` | Spatial data handling |
+| `sfnetworks` | Spatial network analysis |
+| `tidygraph` | Tidy network manipulation |
+| `igraph` | Graph algorithms (shortest paths) |
+| `dplyr` | Data manipulation |
+| `tidyr` | Data tidying |
+| `ggplot2` | Visualization |
+| `jsonlite` | JSON export |
+
+## Related Files
+
+- `jer_areas.r` - Original analysis script for population density visualization
