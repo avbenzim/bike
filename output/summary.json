@@ -1,0 +1,10 @@
+{
+  "total_areas": 461,
+  "total_pairs": 106030,
+  "connected_pairs": 2941,
+  "connectivity_pct": 2.8,
+  "avg_path_length_m": 3781.79,
+  "min_path_length_m": 113.26,
+  "max_path_length_m": 12545.96,
+  "median_path_length_m": 2922.7
+}
