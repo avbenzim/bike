@@ -2,7 +2,7 @@
 Connect Bike Lane Network Gaps and Visualize
 
 This script:
-1. Loads bike lanes
+1. Loads bike lanes (completed, construction, wishing list)
 2. Identifies gaps between lane endpoints
 3. Connects nearby endpoints (within tolerance)
 4. Visualizes the connected network
@@ -23,6 +23,7 @@ import networkx as nx
 script_dir = Path(__file__).parent
 BIKE_LANES_COMPLETED = script_dir / "bike_lanes_completed.kml"
 BIKE_LANES_CONSTRUCTION = script_dir / "bike_lanes_construction.kml"
+BIKE_LANES_WISHING_LIST = script_dir / "bike_lanes_wishing_list.kml"
 AREAS_FILE = script_dir / "jer_areas.shp"
 OUTPUT_FILE = script_dir / "jerusalem_bike_lanes_connected.png"
 
@@ -237,6 +238,7 @@ def main():
     # Load bike lanes
     bike_completed = gpd.read_file(BIKE_LANES_COMPLETED, driver='KML')
     bike_construction = gpd.read_file(BIKE_LANES_CONSTRUCTION, driver='KML')
+    bike_wishing_list = gpd.read_file(BIKE_LANES_WISHING_LIST, driver='KML')
 
     # Load areas
     areas = gpd.read_file(AREAS_FILE)
@@ -245,10 +247,11 @@ def main():
     print(f"Loaded {len(areas)} areas")
     print(f"Loaded {len(bike_completed)} completed bike lane segments")
     print(f"Loaded {len(bike_construction)} bike lanes under construction")
+    print(f"Loaded {len(bike_wishing_list)} wishing list bike lanes")
 
-    # Combine all bike lanes
+    # Combine all bike lanes for connectivity analysis
     all_lanes = gpd.GeoDataFrame(
-        pd.concat([bike_completed, bike_construction], ignore_index=True),
+        pd.concat([bike_completed, bike_construction, bike_wishing_list], ignore_index=True),
         crs=bike_completed.crs
     )
 
@@ -282,6 +285,7 @@ def main():
     areas = areas.to_crs(4326)
     bike_completed = bike_completed.to_crs(4326)
     bike_construction = bike_construction.to_crs(4326)
+    bike_wishing_list = bike_wishing_list.to_crs(4326)
 
     # Create visualization
     print("\nCreating visualization...")
@@ -291,31 +295,35 @@ def main():
     # Plot areas as base layer
     areas.plot(ax=ax, facecolor='lightyellow', edgecolor='gray', linewidth=0.3, alpha=0.7)
 
-    # Plot bike lanes under construction (orange dashed)
-    bike_construction.plot(ax=ax, color='orange', linewidth=1.5, linestyle='--')
+    # Plot wishing list (purple solid)
+    bike_wishing_list.plot(ax=ax, color='purple', linewidth=1.5)
+
+    # Plot bike lanes under construction (orange solid)
+    bike_construction.plot(ax=ax, color='orange', linewidth=1.5)
 
     # Plot completed bike lanes (green solid)
-    bike_completed.plot(ax=ax, color='darkgreen', linewidth=1)
+    bike_completed.plot(ax=ax, color='darkgreen', linewidth=1.2)
 
-    # Plot connections (red)
+    # Plot connections (red solid)
     if connections_gdf is not None and len(connections_gdf) > 0:
-        connections_gdf.plot(ax=ax, color='red', linewidth=2, linestyle='-')
+        connections_gdf.plot(ax=ax, color='red', linewidth=2)
 
     # Styling
-    ax.set_title('Jerusalem Bike Lanes Network - Gap Connections', fontsize=16, fontweight='bold', pad=20)
+    ax.set_title('Jerusalem Bike Lanes Network', fontsize=16, fontweight='bold', pad=20)
     ax.set_xlabel('Longitude', fontsize=10)
     ax.set_ylabel('Latitude', fontsize=10)
 
-    # Add legend
+    # Add legend (all solid lines)
     legend_elements = [
         Line2D([0], [0], color='darkgreen', linewidth=2, label='Completed'),
-        Line2D([0], [0], color='orange', linewidth=2, linestyle='--', label='Under Construction'),
+        Line2D([0], [0], color='orange', linewidth=2, label='Under Construction'),
+        Line2D([0], [0], color='purple', linewidth=2, label='Wishing List'),
         Line2D([0], [0], color='red', linewidth=2, label=f'Gap Connections (<{CONNECTION_TOLERANCE}m)'),
     ]
     ax.legend(handles=legend_elements, loc='upper right', fontsize=10)
 
     # Grid
-    ax.grid(True, linestyle='--', alpha=0.3)
+    ax.grid(True, linestyle=':', alpha=0.3)
 
     plt.tight_layout()
 
