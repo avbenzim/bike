@@ -47,6 +47,12 @@ OUTPUT_DIR <- file.path(script_dir, "output")
 # CRS for distance calculations (Israel TM Grid - meters)
 TARGET_CRS <- 2039
 
+# Network connection parameters (in meters)
+# Gaps smaller than this will be connected
+CONNECTION_TOLERANCE <- 50
+# Lanes further than this from any other lane are considered truly isolated
+ISOLATION_THRESHOLD <- 200
+
 # =============================================================================
 # Functions
 # =============================================================================
@@ -72,6 +78,217 @@ load_bike_lanes <- function(file_path) {
 
   message("Loaded ", nrow(bike_lanes), " bike lane segments")
   return(bike_lanes)
+}
+
+
+#' Connect nearby bike lane segments to create a more connected network
+#'
+#' This function finds "dangling" endpoints (endpoints not already touching
+#' another lane) and connects them to their nearest neighbor within tolerance.
+#'
+#' @param bike_lanes sf object with bike lane line geometries
+#' @param connection_tolerance Maximum distance (in CRS units) to connect gaps
+#' @param isolation_threshold Distance beyond which a lane is considered truly isolated
+#' @return sf object with additional connecting segments
+connect_network_gaps <- function(bike_lanes,
+                                  connection_tolerance = 50,
+                                  isolation_threshold = 200) {
+  message("Connecting network gaps (tolerance: ", connection_tolerance, "m)...")
+
+  # Extract all endpoints from the bike lanes
+  get_endpoints <- function(line) {
+    coords <- st_coordinates(line)
+    if (nrow(coords) < 2) return(NULL)
+
+    start_pt <- st_point(coords[1, 1:2])
+    end_pt <- st_point(coords[nrow(coords), 1:2])
+
+    return(list(start = start_pt, end = end_pt))
+  }
+
+  # Collect all endpoints
+  all_endpoints <- list()
+  endpoint_info <- data.frame(
+    lane_id = integer(),
+    endpoint_type = character(),
+    stringsAsFactors = FALSE
+  )
+
+  for (i in seq_len(nrow(bike_lanes))) {
+    eps <- get_endpoints(bike_lanes$geometry[i])
+    if (!is.null(eps)) {
+      all_endpoints[[length(all_endpoints) + 1]] <- eps$start
+      endpoint_info <- rbind(endpoint_info, data.frame(
+        lane_id = i, endpoint_type = "start", stringsAsFactors = FALSE
+      ))
+
+      all_endpoints[[length(all_endpoints) + 1]] <- eps$end
+      endpoint_info <- rbind(endpoint_info, data.frame(
+        lane_id = i, endpoint_type = "end", stringsAsFactors = FALSE
+      ))
+    }
+  }
+
+  n_endpoints <- length(all_endpoints)
+  message("  Found ", n_endpoints, " endpoints from ", nrow(bike_lanes), " lane segments")
+
+  # Create sf object of endpoints
+  endpoints_sf <- st_sf(
+    endpoint_info,
+    geometry = st_sfc(all_endpoints, crs = st_crs(bike_lanes))
+  )
+
+  # Calculate distance matrix
+  dist_matrix <- st_distance(endpoints_sf)
+
+  # Identify "dangling" endpoints (not touching another lane within 1m)
+  TOUCH_TOLERANCE <- 1.0
+  is_connected <- rep(FALSE, n_endpoints)
+
+  for (i in seq_len(n_endpoints)) {
+    for (j in seq_len(n_endpoints)) {
+      if (i == j) next
+      if (endpoint_info$lane_id[i] == endpoint_info$lane_id[j]) next
+      if (as.numeric(dist_matrix[i, j]) < TOUCH_TOLERANCE) {
+        is_connected[i] <- TRUE
+        break
+      }
+    }
+  }
+
+  n_dangling <- sum(!is_connected)
+  message("  Found ", n_dangling, " dangling endpoints (not touching other lanes)")
+
+  # For each dangling endpoint, find nearest neighbor from different lane
+  connections_to_add <- list()
+  already_connected <- rep(FALSE, n_endpoints)
+
+  for (i in seq_len(n_endpoints)) {
+    if (is_connected[i]) next  # Skip already connected
+    if (already_connected[i]) next  # Skip if we made a connection for this
+
+    # Find nearest endpoint from a different lane within tolerance
+    best_j <- NA
+    best_dist <- Inf
+
+    for (j in seq_len(n_endpoints)) {
+      if (i == j) next
+      if (endpoint_info$lane_id[i] == endpoint_info$lane_id[j]) next
+
+      dist <- as.numeric(dist_matrix[i, j])
+      if (dist < 0.1 || dist > connection_tolerance) next
+
+      # Prefer connecting to other dangling endpoints
+      if (!is_connected[j] && !already_connected[j]) {
+        if (dist < best_dist) {
+          best_dist <- dist
+          best_j <- j
+        }
+      }
+    }
+
+    # If no dangling neighbor, try any endpoint
+    if (is.na(best_j)) {
+      for (j in seq_len(n_endpoints)) {
+        if (i == j) next
+        if (endpoint_info$lane_id[i] == endpoint_info$lane_id[j]) next
+
+        dist <- as.numeric(dist_matrix[i, j])
+        if (dist < 0.1 || dist > connection_tolerance) next
+
+        if (dist < best_dist) {
+          best_dist <- dist
+          best_j <- j
+          break  # Take first valid one
+        }
+      }
+    }
+
+    if (!is.na(best_j)) {
+      # Create connecting line
+      pt1 <- all_endpoints[[i]]
+      pt2 <- all_endpoints[[best_j]]
+
+      connecting_line <- st_linestring(rbind(
+        st_coordinates(pt1),
+        st_coordinates(pt2)
+      ))
+
+      connections_to_add[[length(connections_to_add) + 1]] <- list(
+        geometry = connecting_line,
+        distance = best_dist,
+        from_lane = endpoint_info$lane_id[i],
+        to_lane = endpoint_info$lane_id[best_j]
+      )
+
+      already_connected[i] <- TRUE
+      already_connected[best_j] <- TRUE
+    }
+  }
+
+  n_connections <- length(connections_to_add)
+  message("  Adding ", n_connections, " connecting segments")
+
+  if (n_connections > 0) {
+    # Create sf object for new connections
+    new_connections <- st_sf(
+      Name = paste0("Connection_", seq_len(n_connections)),
+      Description = sapply(connections_to_add, function(x)
+        paste0("Gap: ", round(x$distance, 1), "m")),
+      geometry = st_sfc(
+        lapply(connections_to_add, function(x) x$geometry),
+        crs = st_crs(bike_lanes)
+      )
+    )
+
+    # Add any missing columns to match bike_lanes structure
+    for (col in setdiff(names(bike_lanes), names(new_connections))) {
+      new_connections[[col]] <- NA
+    }
+
+    # Select only columns that exist in bike_lanes
+    new_connections <- new_connections[, names(bike_lanes)]
+
+    # Combine original lanes with new connections
+    bike_lanes_connected <- rbind(bike_lanes, new_connections)
+
+    message("  Network now has ", nrow(bike_lanes_connected), " segments (",
+            nrow(bike_lanes), " original + ", n_connections, " connections)")
+  } else {
+    bike_lanes_connected <- bike_lanes
+    message("  No gaps found within tolerance - network unchanged")
+  }
+
+  return(bike_lanes_connected)
+}
+
+
+#' Analyze network connectivity and identify isolated components
+#' @param bike_lanes sf object with bike lane geometries
+#' @param isolation_threshold Distance to consider a component isolated
+#' @return List with connectivity statistics
+analyze_connectivity <- function(bike_lanes, isolation_threshold = 200) {
+  message("Analyzing network connectivity...")
+
+  # Create a simple network
+  net <- as_sfnetwork(bike_lanes, directed = FALSE)
+  g <- as.igraph(net)
+
+  # Find connected components
+  components <- components(g)
+  n_components <- components$no
+  component_sizes <- table(components$membership)
+
+  message("  Found ", n_components, " connected components")
+  message("  Largest component: ", max(component_sizes), " nodes")
+  message("  Components with >10 nodes: ", sum(component_sizes > 10))
+  message("  Isolated segments (1-2 nodes): ", sum(component_sizes <= 2))
+
+  return(list(
+    n_components = n_components,
+    component_sizes = component_sizes,
+    membership = components$membership
+  ))
 }
 
 
@@ -378,23 +595,41 @@ export_results <- function(results, net, centers, output_dir) {
 #' @param net sfnetwork object
 #' @param centers sf object with area centroids
 #' @param areas sf object with area polygons
+#' @param bike_lanes_original Original bike lanes (before connections)
+#' @param bike_lanes_connected Connected bike lanes (after filling gaps)
 #' @param output_dir Output directory
-create_visualization <- function(net, centers, areas, output_dir) {
+create_visualization <- function(net, centers, areas,
+                                  bike_lanes_original, bike_lanes_connected,
+                                  output_dir) {
   message("Creating visualization...")
 
-  # Get network edges as sf
-  edges_sf <- net %>%
-    activate("edges") %>%
-    st_as_sf()
+  # Identify which segments are connections (added segments)
+  n_original <- nrow(bike_lanes_original)
+  n_connected <- nrow(bike_lanes_connected)
 
-  # Create plot
-  p <- ggplot() +
-    geom_sf(data = areas, fill = "lightgray", color = "white", alpha = 0.5) +
-    geom_sf(data = edges_sf, color = "blue", linewidth = 0.5) +
-    geom_sf(data = centers, color = "red", size = 2) +
-    theme_minimal() +
-    labs(title = "Jerusalem Bike Network and Area Centers",
-         subtitle = "Blue: Bike lanes | Red: Area centers")
+  if (n_connected > n_original) {
+    original_lanes <- bike_lanes_connected[1:n_original, ]
+    connecting_segments <- bike_lanes_connected[(n_original + 1):n_connected, ]
+
+    # Create plot showing connections
+    p <- ggplot() +
+      geom_sf(data = areas, fill = "lightgray", color = "white", alpha = 0.5) +
+      geom_sf(data = original_lanes, color = "darkgreen", linewidth = 0.7) +
+      geom_sf(data = connecting_segments, color = "red", linewidth = 1.2, linetype = "dashed") +
+      geom_sf(data = centers, color = "blue", size = 1.5, alpha = 0.7) +
+      theme_minimal() +
+      labs(title = "Jerusalem Bike Network (Connected)",
+           subtitle = "Green: Bike lanes | Red dashed: Gap connections | Blue: Area centers")
+  } else {
+    # No connections added
+    p <- ggplot() +
+      geom_sf(data = areas, fill = "lightgray", color = "white", alpha = 0.5) +
+      geom_sf(data = bike_lanes_connected, color = "darkgreen", linewidth = 0.7) +
+      geom_sf(data = centers, color = "blue", size = 1.5, alpha = 0.7) +
+      theme_minimal() +
+      labs(title = "Jerusalem Bike Network and Area Centers",
+           subtitle = "Green: Bike lanes | Blue: Area centers")
+  }
 
   ggsave(file.path(output_dir, "network_map.png"), plot = p,
          width = 12, height = 10, dpi = 150)
@@ -420,11 +655,27 @@ main <- function() {
   bike_lanes <- st_transform(bike_lanes, TARGET_CRS)
   areas <- st_transform(areas, TARGET_CRS)
 
+  # Analyze connectivity before connecting gaps
+  message("\n--- Before connecting gaps ---")
+  connectivity_before <- analyze_connectivity(bike_lanes, ISOLATION_THRESHOLD)
+
+  # Connect nearby lane segments to improve network connectivity
+  message("\n--- Connecting network gaps ---")
+  bike_lanes_connected <- connect_network_gaps(
+    bike_lanes,
+    connection_tolerance = CONNECTION_TOLERANCE,
+    isolation_threshold = ISOLATION_THRESHOLD
+  )
+
+  # Analyze connectivity after connecting gaps
+  message("\n--- After connecting gaps ---")
+  connectivity_after <- analyze_connectivity(bike_lanes_connected, ISOLATION_THRESHOLD)
+
   # Calculate area centers
   centers <- get_area_centers(areas, name_column = "STAT11_HEB")
 
-  # Build network
-  net <- build_network(bike_lanes)
+  # Build network from connected lanes
+  net <- build_network(bike_lanes_connected)
 
   # Calculate shortest paths
   results <- calculate_shortest_paths(net, centers)
@@ -434,7 +685,8 @@ main <- function() {
 
   # Create visualization
   tryCatch({
-    create_visualization(net, centers, areas, OUTPUT_DIR)
+    create_visualization(net, centers, areas,
+                        bike_lanes, bike_lanes_connected, OUTPUT_DIR)
   }, error = function(e) {
     message("Could not create visualization: ", e$message)
   })
@@ -449,6 +701,12 @@ main <- function() {
   message("Average path length: ", round(summary_stats$average_path_length_m), " meters")
   message("Shortest path: ", round(summary_stats$min_path_length_m), " meters")
   message("Longest path: ", round(summary_stats$max_path_length_m), " meters")
+
+  message("\nNetwork Connectivity Improvement:")
+  message("  Components before: ", connectivity_before$n_components)
+  message("  Components after:  ", connectivity_after$n_components)
+  message("  Improvement: ", connectivity_before$n_components - connectivity_after$n_components,
+          " components merged")
 
   message("\nDistance Matrix (first 5x5):")
   print(results$distance_matrix[1:min(5, nrow(results$distance_matrix)),
