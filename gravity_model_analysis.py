@@ -42,7 +42,7 @@ TARGET_CRS = 2039  # Israel TM Grid (meters)
 
 # Model parameters
 K_PENALTY = 10      # Roads without bike lanes are K times slower
-THETA = -6          # Distance decay parameter (negative = decay)
+THETA = -1          # Distance decay parameter (negative = decay)
 
 # Enable KML driver
 fiona.drvsupport.supported_drivers['KML'] = 'rw'
