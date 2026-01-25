@@ -304,22 +304,51 @@ def calculate_gravity_model(pop, emp, dist_matrix, theta):
     return total_N, N
 
 
-def evaluate_scenario(roads_gdf, completed, construction, wishing_subset, areas, k_penalty, theta):
+def evaluate_scenario(G_base, node_coords, wishing_subset, areas, k_penalty, theta, tree, node_ids, coords_array):
     """Evaluate a scenario with specific wishing list lanes included."""
 
-    # Build base network
-    G, node_coords = build_road_network(roads_gdf, tolerance=10)
-
-    # Add completed and construction bike lanes
-    G = add_bike_lanes_to_network(G, node_coords, completed, k_penalty)
-    G = add_bike_lanes_to_network(G, node_coords, construction, k_penalty)
+    # Copy base graph
+    G = G_base.copy()
 
     # Add selected wishing list lanes
     if wishing_subset is not None and len(wishing_subset) > 0:
-        G = add_bike_lanes_to_network(G, node_coords, wishing_subset, k_penalty)
+        wishing_proj = wishing_subset.to_crs(TARGET_CRS)
 
-    # Apply weights
-    G = apply_weights(G, k_penalty)
+        for idx, row in wishing_proj.iterrows():
+            geom = row.geometry
+            if geom is None or geom.is_empty:
+                continue
+
+            lines = [geom] if geom.geom_type == 'LineString' else list(geom.geoms)
+
+            for line in lines:
+                coords = list(line.coords)
+                if len(coords) < 2:
+                    continue
+
+                length = line.length
+
+                _, start_idx = tree.query(coords[0][:2])
+                _, end_idx = tree.query(coords[-1][:2])
+
+                start_node = node_ids[start_idx]
+                end_node = node_ids[end_idx]
+
+                if start_node == end_node:
+                    continue
+
+                start_dist = np.sqrt((coords[0][0] - coords_array[start_idx][0])**2 +
+                                    (coords[0][1] - coords_array[start_idx][1])**2)
+                end_dist = np.sqrt((coords[-1][0] - coords_array[end_idx][0])**2 +
+                                  (coords[-1][1] - coords_array[end_idx][1])**2)
+
+                if start_dist < 200 and end_dist < 200:
+                    if G.has_edge(start_node, end_node):
+                        # Update to bike lane weight (no penalty)
+                        G[start_node][end_node]['weight'] = min(G[start_node][end_node]['weight'], length)
+                        G[start_node][end_node]['has_bike_lane'] = True
+                    else:
+                        G.add_edge(start_node, end_node, length=length, weight=length, has_bike_lane=True)
 
     # Calculate distance matrix
     dist_matrix = calculate_distance_matrix(G, node_coords, areas)
@@ -338,7 +367,7 @@ def evaluate_scenario(roads_gdf, completed, construction, wishing_subset, areas,
     return {
         'total_N': total_N,
         'connected_pairs': connected,
-        'avg_distance': np.mean(dist_matrix[(dist_matrix > 0) & (dist_matrix < np.inf)])
+        'avg_distance': np.mean(dist_matrix[(dist_matrix > 0) & (dist_matrix < np.inf)]) if np.any((dist_matrix > 0) & (dist_matrix < np.inf)) else 0
     }
 
 
@@ -351,10 +380,23 @@ def rank_wishing_list_lanes(roads_gdf, completed, construction, wishing_list, ar
     n_wishing = len(wishing_list)
     print(f"Evaluating {n_wishing} wishing list lanes...")
 
+    # Build base network ONCE
+    print("\nBuilding base network...")
+    G_base, node_coords = build_road_network(roads_gdf, tolerance=10)
+    G_base = add_bike_lanes_to_network(G_base, node_coords, completed, k_penalty)
+    G_base = add_bike_lanes_to_network(G_base, node_coords, construction, k_penalty)
+    G_base = apply_weights(G_base, k_penalty)
+
+    # Build spatial index
+    node_ids = list(node_coords.keys())
+    coords_array = np.array([node_coords[n] for n in node_ids])
+    tree = cKDTree(coords_array)
+
     # Calculate baseline (no wishing list)
     print("\nCalculating baseline (without wishing list)...")
-    baseline = evaluate_scenario(roads_gdf, completed, construction, None, areas, k_penalty, theta)
+    baseline = evaluate_scenario(G_base, node_coords, None, areas, k_penalty, theta, tree, node_ids, coords_array)
     print(f"  Baseline total N: {baseline['total_N']:.2e}")
+    print(f"  Connected pairs: {baseline['connected_pairs']:.0f}")
 
     # Evaluate each lane individually
     print("\nEvaluating individual lanes...")
@@ -362,7 +404,7 @@ def rank_wishing_list_lanes(roads_gdf, completed, construction, wishing_list, ar
 
     for i in range(n_wishing):
         lane = wishing_list.iloc[[i]]
-        result = evaluate_scenario(roads_gdf, completed, construction, lane, areas, k_penalty, theta)
+        result = evaluate_scenario(G_base, node_coords, lane, areas, k_penalty, theta, tree, node_ids, coords_array)
 
         improvement = result['total_N'] - baseline['total_N']
         pct_improvement = 100 * improvement / baseline['total_N'] if baseline['total_N'] > 0 else 0
@@ -383,7 +425,7 @@ def rank_wishing_list_lanes(roads_gdf, completed, construction, wishing_list, ar
     # Sort by improvement
     lane_impacts.sort(key=lambda x: x['improvement'], reverse=True)
 
-    return baseline, lane_impacts
+    return baseline, lane_impacts, G_base, node_coords, tree, node_ids, coords_array
 
 
 def evaluate_combinations(roads_gdf, completed, construction, wishing_list, areas,
@@ -393,13 +435,13 @@ def evaluate_combinations(roads_gdf, completed, construction, wishing_list, area
     print(f"EVALUATING COMBINATIONS (up to {max_lanes} lanes)")
     print("=" * 70)
 
-    # First rank individual lanes
-    baseline, lane_impacts = rank_wishing_list_lanes(
+    # First rank individual lanes (this also builds the base network)
+    baseline, lane_impacts, G_base, node_coords, tree, node_ids, coords_array = rank_wishing_list_lanes(
         roads_gdf, completed, construction, wishing_list, areas, k_penalty, theta
     )
 
     # Get top lanes
-    top_lanes = [l['lane_id'] for l in lane_impacts[:min(10, len(lane_impacts))]]
+    top_lanes = [l['lane_id'] for l in lane_impacts[:min(8, len(lane_impacts))]]
     print(f"\nEvaluating combinations of top {len(top_lanes)} lanes...")
 
     combination_results = []
@@ -410,7 +452,7 @@ def evaluate_combinations(roads_gdf, completed, construction, wishing_list, area
 
         for combo in combinations(top_lanes, n):
             lanes_subset = wishing_list.iloc[list(combo)]
-            result = evaluate_scenario(roads_gdf, completed, construction, lanes_subset, areas, k_penalty, theta)
+            result = evaluate_scenario(G_base, node_coords, lanes_subset, areas, k_penalty, theta, tree, node_ids, coords_array)
 
             improvement = result['total_N'] - baseline['total_N']
             pct_improvement = 100 * improvement / baseline['total_N'] if baseline['total_N'] > 0 else 0
