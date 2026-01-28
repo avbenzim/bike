@@ -56,14 +56,19 @@ def load_data():
     return areas, roads, completed, construction, wishing_list
 
 
-def build_network(roads_gdf, bike_lanes_list, tolerance=15):
-    """Build NetworkX graph from roads with bike lanes marked."""
+def build_network(roads_gdf, bike_lanes_list, tolerance=15, snap_tolerance=50):
+    """Build NetworkX graph from roads with bike lanes marked.
+
+    Uses grid-based clustering for roads, then nearest-neighbor snapping
+    for bike lanes (within snap_tolerance) to ensure lanes connect to roads.
+    """
     G = nx.Graph()
     coord_to_node = {}
     node_coords = {}
     node_counter = [0]
 
-    def get_or_create_node(x, y):
+    def get_or_create_node_grid(x, y):
+        """Grid-based node creation for roads."""
         key = (round(x / tolerance) * tolerance, round(y / tolerance) * tolerance)
         if key in coord_to_node:
             return coord_to_node[key]
@@ -74,7 +79,7 @@ def build_network(roads_gdf, bike_lanes_list, tolerance=15):
         G.add_node(nid, x=x, y=y)
         return nid
 
-    # Add road edges
+    # Add road edges first
     for idx, row in roads_gdf.iterrows():
         geom = row.geometry
         if geom is None or geom.is_empty:
@@ -84,14 +89,28 @@ def build_network(roads_gdf, bike_lanes_list, tolerance=15):
             coords = list(line.coords)
             if len(coords) < 2:
                 continue
-            start = get_or_create_node(coords[0][0], coords[0][1])
-            end = get_or_create_node(coords[-1][0], coords[-1][1])
+            start = get_or_create_node_grid(coords[0][0], coords[0][1])
+            end = get_or_create_node_grid(coords[-1][0], coords[-1][1])
             if start != end:
                 length = line.length
                 if not G.has_edge(start, end) or G[start][end]['length'] > length:
                     G.add_edge(start, end, length=length, has_bike_lane=False)
 
-    # Add bike lane edges
+    # Build spatial index of road nodes for snapping bike lanes
+    node_ids = list(node_coords.keys())
+    coords_array = np.array([node_coords[n] for n in node_ids])
+    node_tree = cKDTree(coords_array)
+
+    def get_nearest_node(x, y):
+        """Find nearest existing node within snap_tolerance, or create new."""
+        if len(coords_array) > 0:
+            dist, idx = node_tree.query([x, y])
+            if dist <= snap_tolerance:
+                return node_ids[idx]
+        # Fall back to grid-based if no nearby node
+        return get_or_create_node_grid(x, y)
+
+    # Add bike lane edges using nearest-neighbor snapping
     for bl_gdf in bike_lanes_list:
         if bl_gdf is None:
             continue
@@ -105,8 +124,8 @@ def build_network(roads_gdf, bike_lanes_list, tolerance=15):
                 coords = list(line.coords)
                 if len(coords) < 2:
                     continue
-                start = get_or_create_node(coords[0][0], coords[0][1])
-                end = get_or_create_node(coords[-1][0], coords[-1][1])
+                start = get_nearest_node(coords[0][0], coords[0][1])
+                end = get_nearest_node(coords[-1][0], coords[-1][1])
                 if start != end:
                     length = line.length
                     if G.has_edge(start, end):
@@ -114,7 +133,7 @@ def build_network(roads_gdf, bike_lanes_list, tolerance=15):
                     else:
                         G.add_edge(start, end, length=length, has_bike_lane=True)
 
-    # Build node lookup tree
+    # Rebuild node lookup tree (may have new nodes)
     node_ids = list(node_coords.keys())
     coords_array = np.array([node_coords[n] for n in node_ids])
     node_tree = cKDTree(coords_array)
