@@ -24,7 +24,7 @@ AREAS_FILE = script_dir / "jer_areas.shp"
 
 TARGET_CRS = 2039
 NODE_TOLERANCE = 15
-K_PENALTY = 10
+K_PENALTY = 100
 THETA = -1
 
 fiona.drvsupport.supported_drivers['KML'] = 'rw'
