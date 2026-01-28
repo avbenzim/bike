@@ -92,77 +92,23 @@ def build_network(roads_gdf, bike_lanes_list, tolerance=15):
     print("Building network graph...")
 
     G = nx.Graph()
-    all_coords = []
-
-    # Collect all coordinates from roads
-    for idx, row in roads_gdf.iterrows():
-        geom = row.geometry
-        if geom is None or geom.is_empty:
-            continue
-        lines = [geom] if geom.geom_type == 'LineString' else list(geom.geoms) if hasattr(geom, 'geoms') else []
-        for line in lines:
-            coords = list(line.coords)
-            for c in coords:
-                all_coords.append((c[0], c[1]))
-
-    # Collect coordinates from bike lanes
-    for bl_gdf in bike_lanes_list:
-        if bl_gdf is None:
-            continue
-        bl_proj = bl_gdf.to_crs(TARGET_CRS)
-        for idx, row in bl_proj.iterrows():
-            geom = row.geometry
-            if geom is None or geom.is_empty:
-                continue
-            lines = [geom] if geom.geom_type == 'LineString' else list(geom.geoms) if hasattr(geom, 'geoms') else []
-            for line in lines:
-                coords = list(line.coords)
-                for c in coords:
-                    all_coords.append((c[0], c[1]))
-
-    if not all_coords:
-        return G, {}, None, []
-
-    # Cluster nodes
-    all_coords = np.array(all_coords)
-    tree = cKDTree(all_coords)
-
-    node_coords = {}
     coord_to_node = {}
-    node_counter = 0
+    node_coords = {}
+    node_counter = [0]
 
-    for i, coord in enumerate(all_coords):
-        coord_key = (round(coord[0], 1), round(coord[1], 1))
-        if coord_key in coord_to_node:
-            continue
-
-        # Find nearby points
-        nearby = tree.query_ball_point(coord, tolerance)
-
-        # Check if any nearby point already has a node
-        found_node = None
-        for j in nearby:
-            nearby_key = (round(all_coords[j][0], 1), round(all_coords[j][1], 1))
-            if nearby_key in coord_to_node:
-                found_node = coord_to_node[nearby_key]
-                break
-
-        if found_node is not None:
-            coord_to_node[coord_key] = found_node
-        else:
-            node_coords[node_counter] = (coord[0], coord[1])
-            coord_to_node[coord_key] = node_counter
-            G.add_node(node_counter, x=coord[0], y=coord[1])
-            node_counter += 1
-
-    def get_node(x, y):
-        coord_key = (round(x, 1), round(y, 1))
-        if coord_key in coord_to_node:
-            return coord_to_node[coord_key]
-        # Find nearest
-        dist, idx = tree.query([x, y])
-        nearest_key = (round(all_coords[idx][0], 1), round(all_coords[idx][1], 1))
-        return coord_to_node.get(nearest_key, None)
+    def get_or_create_node(x, y):
+        """Get existing node or create new one using grid-based clustering."""
+        # Round to tolerance grid
+        key = (round(x / tolerance) * tolerance, round(y / tolerance) * tolerance)
+        if key in coord_to_node:
+            return coord_to_node[key]
+        # Create new node
+        nid = node_counter[0]
+        node_counter[0] += 1
+        coord_to_node[key] = nid
+        node_coords[nid] = (x, y)
+        G.add_node(nid, x=x, y=y)
+        return nid
 
     # Add road edges
     for idx, row in roads_gdf.iterrows():
@@ -174,14 +120,14 @@ def build_network(roads_gdf, bike_lanes_list, tolerance=15):
             coords = list(line.coords)
             if len(coords) < 2:
                 continue
-            start = get_node(coords[0][0], coords[0][1])
-            end = get_node(coords[-1][0], coords[-1][1])
-            if start is not None and end is not None and start != end:
+            start = get_or_create_node(coords[0][0], coords[0][1])
+            end = get_or_create_node(coords[-1][0], coords[-1][1])
+            if start != end:
                 length = line.length
                 if not G.has_edge(start, end) or G[start][end]['length'] > length:
                     G.add_edge(start, end, length=length, has_bike_lane=False)
 
-    # Mark bike lane edges
+    # Add bike lane edges and mark existing edges
     for bl_gdf in bike_lanes_list:
         if bl_gdf is None:
             continue
@@ -195,9 +141,9 @@ def build_network(roads_gdf, bike_lanes_list, tolerance=15):
                 coords = list(line.coords)
                 if len(coords) < 2:
                     continue
-                start = get_node(coords[0][0], coords[0][1])
-                end = get_node(coords[-1][0], coords[-1][1])
-                if start is not None and end is not None and start != end:
+                start = get_or_create_node(coords[0][0], coords[0][1])
+                end = get_or_create_node(coords[-1][0], coords[-1][1])
+                if start != end:
                     length = line.length
                     if G.has_edge(start, end):
                         G[start][end]['has_bike_lane'] = True
@@ -209,7 +155,11 @@ def build_network(roads_gdf, bike_lanes_list, tolerance=15):
     coords_array = np.array([node_coords[n] for n in node_ids])
     node_tree = cKDTree(coords_array)
 
+    # Check connectivity
+    components = list(nx.connected_components(G))
+    largest_cc = max(components, key=len)
     print(f"  Nodes: {G.number_of_nodes()}, Edges: {G.number_of_edges()}")
+    print(f"  Connected components: {len(components)}, largest: {len(largest_cc)} nodes")
 
     return G, node_coords, node_tree, node_ids
 
