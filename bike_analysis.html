@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ניתוח שבילי אופניים - ירושלים</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+        .header {
+            background: #2c3e50;
+            color: white;
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 { margin: 0; font-size: 1.5em; }
+        .controls {
+            background: #34495e;
+            padding: 10px 20px;
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .control-group label {
+            color: white;
+            font-weight: bold;
+        }
+        select, button {
+            padding: 8px 12px;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        select { background: white; }
+        button {
+            background: #3498db;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover { background: #2980b9; }
+        button.active { background: #27ae60; }
+        .main-content {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+        .map-container {
+            flex: 1;
+            position: relative;
+        }
+        .map {
+            width: 100%;
+            height: 100%;
+        }
+        .sidebar {
+            width: 350px;
+            background: #ecf0f1;
+            overflow-y: auto;
+            padding: 15px;
+        }
+        .sidebar h3 {
+            margin-top: 0;
+            color: #2c3e50;
+            border-bottom: 2px solid #3498db;
+            padding-bottom: 5px;
+        }
+        .lane-item {
+            padding: 8px;
+            margin: 5px 0;
+            background: white;
+            border-radius: 4px;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .lane-item:hover { background: #d5dbdb; }
+        .lane-item.selected { background: #a9dfbf; border: 2px solid #27ae60; }
+        .lane-improvement {
+            font-weight: bold;
+            color: #27ae60;
+        }
+        .legend {
+            position: absolute;
+            bottom: 30px;
+            right: 10px;
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            z-index: 1000;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+        .legend-color {
+            width: 20px;
+            height: 4px;
+            margin-left: 10px;
+        }
+        .info-panel {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: white;
+            padding: 10px 15px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+            z-index: 1000;
+            max-width: 300px;
+        }
+        .path-controls {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+        }
+        .path-controls select {
+            width: 100%;
+            margin: 5px 0;
+        }
+        .tab-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .tab-btn {
+            flex: 1;
+            padding: 10px;
+            text-align: center;
+        }
+        .tab-btn.active {
+            background: #27ae60;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        .baseline-info {
+            background: #fff3cd;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 15px;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>ניתוח שבילי אופניים - ירושלים</h1>
+        <div>
+            <span id="totalImprovement">שיפור כולל: 0%</span>
+        </div>
+    </div>
+
+    <div class="controls">
+        <div class="control-group">
+            <label>K (עונש לכבישים ללא שביל):</label>
+            <select id="kSelect">
+                <option value="10">10</option>
+                <option value="50">50</option>
+                <option value="100" selected>100</option>
+                <option value="200">200</option>
+                <option value="500">500</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <label>θ (פרמטר ריקבון מרחק):</label>
+            <select id="thetaSelect">
+                <option value="-0.5">-0.5</option>
+                <option value="-1" selected>-1</option>
+                <option value="-1.5">-1.5</option>
+                <option value="-2">-2</option>
+                <option value="-3">-3</option>
+            </select>
+        </div>
+        <div class="control-group">
+            <button id="clearSelection">נקה בחירה</button>
+        </div>
+    </div>
+
+    <div class="main-content">
+        <div class="map-container">
+            <div id="map" class="map"></div>
+            <div class="legend">
+                <strong>מקרא</strong>
+                <div class="legend-item">
+                    <span>שבילים קיימים</span>
+                    <div class="legend-color" style="background: #27ae60;"></div>
+                </div>
+                <div class="legend-item">
+                    <span>בהקמה</span>
+                    <div class="legend-color" style="background: #f39c12;"></div>
+                </div>
+                <div class="legend-item">
+                    <span>רשימת משאלות</span>
+                    <div class="legend-color" style="background: #e74c3c;"></div>
+                </div>
+                <div class="legend-item">
+                    <span>נבחר</span>
+                    <div class="legend-color" style="background: #9b59b6; height: 6px;"></div>
+                </div>
+            </div>
+            <div class="info-panel" id="infoPanel" style="display: none;">
+                <strong id="infoPanelTitle"></strong>
+                <p id="infoPanelContent"></p>
+            </div>
+        </div>
+
+        <div class="sidebar">
+            <div class="tab-buttons">
+                <button class="tab-btn active" data-tab="lanes">שבילים</button>
+                <button class="tab-btn" data-tab="paths">מסלולים</button>
+            </div>
+
+            <div id="lanesTab" class="tab-content active">
+                <h3>רשימת משאלות</h3>
+                <div class="baseline-info">
+                    לחץ על שביל במפה או ברשימה כדי לראות את השיפור הצפוי בנגישות
+                </div>
+                <div id="lanesList"></div>
+            </div>
+
+            <div id="pathsTab" class="tab-content">
+                <h3>מסלול אופטימלי</h3>
+                <div class="path-controls">
+                    <label>מוצא:</label>
+                    <select id="originSelect">
+                        <option value="">בחר אזור מוצא...</option>
+                    </select>
+                    <label>יעד:</label>
+                    <select id="destSelect">
+                        <option value="">בחר אזור יעד...</option>
+                    </select>
+                    <button id="showPath" style="width: 100%; margin-top: 10px;">הצג מסלול</button>
+                </div>
+                <div id="pathInfo"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Initialize map
+        const map = L.map('map').setView([31.78, 35.22], 12);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Data storage
+        let areasData = null;
+        let wishingData = null;
+        let completedData = null;
+        let constructionData = null;
+        let sensitivityData = null;
+        let accessibilityData = null;
+        let networkData = null;
+        let centroidsData = null;
+
+        // Layers
+        let areasLayer = null;
+        let completedLayer = null;
+        let constructionLayer = null;
+        let wishingLayer = null;
+        let pathLayer = null;
+
+        // State
+        let selectedLanes = new Set();
+
+        // Load all data
+        async function loadData() {
+            try {
+                const [areas, wishing, completed, construction, sensitivity, accessibility, network, centroids] = await Promise.all([
+                    fetch('areas.geojson').then(r => r.json()),
+                    fetch('wishing.geojson').then(r => r.json()),
+                    fetch('completed.geojson').then(r => r.json()).catch(() => ({type: 'FeatureCollection', features: []})),
+                    fetch('construction.geojson').then(r => r.json()).catch(() => ({type: 'FeatureCollection', features: []})),
+                    fetch('sensitivity_data.json').then(r => r.json()),
+                    fetch('accessibility_data.json').then(r => r.json()),
+                    fetch('network_data.json').then(r => r.json()),
+                    fetch('centroids.json').then(r => r.json())
+                ]);
+
+                areasData = areas;
+                wishingData = wishing;
+                completedData = completed;
+                constructionData = construction;
+                sensitivityData = sensitivity;
+                accessibilityData = accessibility;
+                networkData = network;
+                centroidsData = centroids;
+
+                initializeLayers();
+                populateLanesList();
+                populateAreaSelects();
+            } catch (error) {
+                console.error('Error loading data:', error);
+                alert('שגיאה בטעינת הנתונים');
+            }
+        }
+
+        function initializeLayers() {
+            // Areas layer
+            areasLayer = L.geoJSON(areasData, {
+                style: function(feature) {
+                    return {
+                        fillColor: '#3498db',
+                        weight: 1,
+                        opacity: 0.5,
+                        color: '#2c3e50',
+                        fillOpacity: 0.1
+                    };
+                },
+                onEachFeature: function(feature, layer) {
+                    const props = feature.properties;
+                    layer.bindPopup(`
+                        <strong>${props.name || 'אזור ' + props.area_id}</strong><br>
+                        אוכלוסייה: ${Math.round(props.pop).toLocaleString()}<br>
+                        תעסוקה: ${Math.round(props.emp).toLocaleString()}
+                    `);
+                }
+            }).addTo(map);
+
+            // Completed bike lanes
+            if (completedData.features.length > 0) {
+                completedLayer = L.geoJSON(completedData, {
+                    style: { color: '#27ae60', weight: 3, opacity: 0.8 },
+                    onEachFeature: function(feature, layer) {
+                        layer.bindPopup(`<strong>שביל קיים:</strong><br>${feature.properties.Name || ''}`);
+                    }
+                }).addTo(map);
+            }
+
+            // Construction bike lanes
+            if (constructionData.features.length > 0) {
+                constructionLayer = L.geoJSON(constructionData, {
+                    style: { color: '#f39c12', weight: 3, opacity: 0.8 },
+                    onEachFeature: function(feature, layer) {
+                        layer.bindPopup(`<strong>בהקמה:</strong><br>${feature.properties.Name || ''}`);
+                    }
+                }).addTo(map);
+            }
+
+            // Wishing list lanes
+            wishingLayer = L.geoJSON(wishingData, {
+                style: function(feature) {
+                    const isSelected = selectedLanes.has(feature.properties.Name);
+                    return {
+                        color: isSelected ? '#9b59b6' : '#e74c3c',
+                        weight: isSelected ? 5 : 3,
+                        opacity: 0.8
+                    };
+                },
+                onEachFeature: function(feature, layer) {
+                    const laneName = feature.properties.Name;
+                    layer.on('click', function() {
+                        toggleLaneSelection(laneName);
+                    });
+                    layer.on('mouseover', function() {
+                        showLaneInfo(laneName);
+                    });
+                    layer.on('mouseout', function() {
+                        hideInfo();
+                    });
+                }
+            }).addTo(map);
+        }
+
+        function populateLanesList() {
+            const container = document.getElementById('lanesList');
+            const k = document.getElementById('kSelect').value;
+            const theta = document.getElementById('thetaSelect').value;
+            const key = `${k}_${theta}`;
+            const data = sensitivityData[key] || {};
+
+            // Sort lanes by improvement
+            const lanes = wishingData.features.map(f => ({
+                name: f.properties.Name,
+                improvement: data[f.properties.Name] || 0
+            })).sort((a, b) => b.improvement - a.improvement);
+
+            container.innerHTML = lanes.map(lane => `
+                <div class="lane-item ${selectedLanes.has(lane.name) ? 'selected' : ''}"
+                     data-lane="${lane.name}"
+                     onclick="toggleLaneSelection('${lane.name.replace(/'/g, "\'")}')">
+                    <span>${lane.name}</span>
+                    <span class="lane-improvement">+${lane.improvement.toFixed(2)}%</span>
+                </div>
+            `).join('');
+        }
+
+        function populateAreaSelects() {
+            const originSelect = document.getElementById('originSelect');
+            const destSelect = document.getElementById('destSelect');
+
+            const options = areasData.features.map((f, i) =>
+                `<option value="${i}">${f.properties.name || 'אזור ' + i}</option>`
+            ).join('');
+
+            originSelect.innerHTML = '<option value="">בחר אזור מוצא...</option>' + options;
+            destSelect.innerHTML = '<option value="">בחר אזור יעד...</option>' + options;
+        }
+
+        function toggleLaneSelection(laneName) {
+            if (selectedLanes.has(laneName)) {
+                selectedLanes.delete(laneName);
+            } else {
+                selectedLanes.add(laneName);
+            }
+            updateDisplay();
+        }
+
+        function updateDisplay() {
+            // Update lane styling
+            if (wishingLayer) {
+                wishingLayer.setStyle(function(feature) {
+                    const isSelected = selectedLanes.has(feature.properties.Name);
+                    return {
+                        color: isSelected ? '#9b59b6' : '#e74c3c',
+                        weight: isSelected ? 5 : 3,
+                        opacity: 0.8
+                    };
+                });
+            }
+
+            // Update lanes list
+            populateLanesList();
+
+            // Calculate total improvement
+            const k = document.getElementById('kSelect').value;
+            const theta = document.getElementById('thetaSelect').value;
+            const key = `${k}_${theta}`;
+            const data = sensitivityData[key] || {};
+
+            let totalImprovement = 0;
+            selectedLanes.forEach(name => {
+                totalImprovement += data[name] || 0;
+            });
+
+            document.getElementById('totalImprovement').textContent =
+                `שיפור כולל (משוער): +${totalImprovement.toFixed(2)}%`;
+
+            // Update area colors based on accessibility
+            updateAreaColors();
+        }
+
+        function updateAreaColors() {
+            const k = document.getElementById('kSelect').value;
+            const theta = document.getElementById('thetaSelect').value;
+            const key = `${k}_${theta}`;
+            const accessibility = accessibilityData[key] || [];
+
+            if (accessibility.length === 0) return;
+
+            const maxAcc = Math.max(...accessibility.filter(a => a > 0));
+            const minAcc = Math.min(...accessibility.filter(a => a > 0));
+
+            areasLayer.eachLayer(function(layer) {
+                const areaId = layer.feature.properties.area_id;
+                const acc = accessibility[areaId] || 0;
+
+                // Normalize to 0-1
+                const normalized = maxAcc > minAcc ? (acc - minAcc) / (maxAcc - minAcc) : 0;
+
+                // Color from red (low) to green (high)
+                const r = Math.round(255 * (1 - normalized));
+                const g = Math.round(255 * normalized);
+                const color = `rgb(${r}, ${g}, 100)`;
+
+                layer.setStyle({
+                    fillColor: color,
+                    fillOpacity: 0.4,
+                    weight: 1,
+                    opacity: 0.5,
+                    color: '#2c3e50'
+                });
+            });
+        }
+
+        function showLaneInfo(laneName) {
+            const k = document.getElementById('kSelect').value;
+            const theta = document.getElementById('thetaSelect').value;
+            const key = `${k}_${theta}`;
+            const improvement = sensitivityData[key]?.[laneName] || 0;
+
+            const panel = document.getElementById('infoPanel');
+            document.getElementById('infoPanelTitle').textContent = laneName;
+            document.getElementById('infoPanelContent').textContent =
+                `שיפור צפוי: +${improvement.toFixed(3)}%`;
+            panel.style.display = 'block';
+        }
+
+        function hideInfo() {
+            document.getElementById('infoPanel').style.display = 'none';
+        }
+
+        function showPath() {
+            const originIdx = document.getElementById('originSelect').value;
+            const destIdx = document.getElementById('destSelect').value;
+
+            if (!originIdx || !destIdx) {
+                alert('נא לבחור אזור מוצא ויעד');
+                return;
+            }
+
+            // Remove existing path
+            if (pathLayer) {
+                map.removeLayer(pathLayer);
+            }
+
+            // Use Dijkstra on the network
+            const k = parseInt(document.getElementById('kSelect').value);
+            const path = findShortestPath(parseInt(originIdx), parseInt(destIdx), k);
+
+            if (path && path.length > 0) {
+                pathLayer = L.polyline(path.map(p => [p[1], p[0]]), {
+                    color: '#9b59b6',
+                    weight: 6,
+                    opacity: 0.8
+                }).addTo(map);
+
+                map.fitBounds(pathLayer.getBounds());
+
+                document.getElementById('pathInfo').innerHTML = `
+                    <p><strong>מסלול נמצא!</strong></p>
+                    <p>מספר נקודות: ${path.length}</p>
+                `;
+            } else {
+                document.getElementById('pathInfo').innerHTML = `
+                    <p style="color: #e74c3c;">לא נמצא מסלול בין האזורים</p>
+                `;
+            }
+        }
+
+        function findShortestPath(originIdx, destIdx, k) {
+            if (!networkData || !centroidsData) return null;
+
+            const nodes = networkData.nodes;
+            const edges = networkData.edges;
+            const nodeIds = networkData.node_ids;
+
+            // Find nearest nodes to centroids
+            const originCentroid = centroidsData[originIdx];
+            const destCentroid = centroidsData[destIdx];
+
+            let originNode = null;
+            let destNode = null;
+            let minDistO = Infinity;
+            let minDistD = Infinity;
+
+            for (const [nodeId, coords] of Object.entries(nodes)) {
+                const distO = Math.sqrt(Math.pow(coords[0] - originCentroid[0], 2) + Math.pow(coords[1] - originCentroid[1], 2));
+                const distD = Math.sqrt(Math.pow(coords[0] - destCentroid[0], 2) + Math.pow(coords[1] - destCentroid[1], 2));
+
+                if (distO < minDistO) {
+                    minDistO = distO;
+                    originNode = nodeId;
+                }
+                if (distD < minDistD) {
+                    minDistD = distD;
+                    destNode = nodeId;
+                }
+            }
+
+            if (!originNode || !destNode) return null;
+
+            // Build adjacency list with weights
+            const adj = {};
+            for (const edge of edges) {
+                const weight = edge.has_bike_lane ? edge.length : edge.length * k;
+
+                if (!adj[edge.from]) adj[edge.from] = [];
+                if (!adj[edge.to]) adj[edge.to] = [];
+
+                adj[edge.from].push({node: edge.to, weight: weight});
+                adj[edge.to].push({node: edge.from, weight: weight});
+            }
+
+            // Dijkstra
+            const dist = {};
+            const prev = {};
+            const visited = new Set();
+            const pq = [{node: originNode, dist: 0}];
+
+            dist[originNode] = 0;
+
+            while (pq.length > 0) {
+                // Get node with min distance
+                pq.sort((a, b) => a.dist - b.dist);
+                const {node: current, dist: currentDist} = pq.shift();
+
+                if (visited.has(current)) continue;
+                visited.add(current);
+
+                if (current == destNode) break;
+
+                const neighbors = adj[current] || [];
+                for (const {node: neighbor, weight} of neighbors) {
+                    if (visited.has(neighbor)) continue;
+
+                    const newDist = currentDist + weight;
+                    if (dist[neighbor] === undefined || newDist < dist[neighbor]) {
+                        dist[neighbor] = newDist;
+                        prev[neighbor] = current;
+                        pq.push({node: neighbor, dist: newDist});
+                    }
+                }
+            }
+
+            // Reconstruct path
+            if (dist[destNode] === undefined) return null;
+
+            const path = [];
+            let current = destNode;
+            while (current) {
+                path.unshift(nodes[current]);
+                current = prev[current];
+            }
+
+            return path;
+        }
+
+        // Event listeners
+        document.getElementById('kSelect').addEventListener('change', updateDisplay);
+        document.getElementById('thetaSelect').addEventListener('change', updateDisplay);
+        document.getElementById('clearSelection').addEventListener('click', function() {
+            selectedLanes.clear();
+            updateDisplay();
+        });
+        document.getElementById('showPath').addEventListener('click', showPath);
+
+        // Tab switching
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+                this.classList.add('active');
+                document.getElementById(this.dataset.tab + 'Tab').classList.add('active');
+            });
+        });
+
+        // Initialize
+        loadData();
+    </script>
+</body>
+</html>
