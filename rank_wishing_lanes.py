@@ -146,6 +146,16 @@ def build_network_with_intersections(roads_gdf, bike_lanes_list, tolerance=15):
             int_points.append(Point(lane_coords[0]))
             int_points.append(Point(lane_coords[-1]))
 
+            # Also find nearby road endpoints (for lanes parallel to roads)
+            # Use the original road endpoint (not projected) to ensure connection
+            NEAR_TOLERANCE = 30
+            for road_geom in road_geoms:
+                road_coords = list(road_geom.coords)
+                for rc in [road_coords[0], road_coords[-1]]:
+                    pt = Point(rc[0], rc[1])
+                    if geom.distance(pt) < NEAR_TOLERANCE:
+                        int_points.append(pt)  # Use original point, not projected
+
             # Sort points along the lane
             points_with_dist = []
             for pt in int_points:
