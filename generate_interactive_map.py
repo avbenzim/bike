@@ -228,6 +228,53 @@ def main():
     for u, v, d in G_base.edges(data=True):
         edges_list.append([u, v, round(d['length'], 1), 1 if d.get('has_bike_lane') else 0])
 
+    # Pre-compute edges for each wishing list lane (for online path calculation)
+    print("Computing wishing lane edges for online path finding...")
+    wishing_proj = wishing.to_crs(TARGET_CRS)
+    wishing_edges = {}  # lane_id -> [[nodeA, nodeB, length], ...]
+
+    # Build a coord_to_node lookup from the base network
+    coord_to_node = {}
+    for nid, (x, y) in nc.items():
+        key = (round(x / NODE_TOLERANCE) * NODE_TOLERANCE, round(y / NODE_TOLERANCE) * NODE_TOLERANCE)
+        coord_to_node[key] = nid
+
+    for lid in range(len(wishing_proj)):
+        geom = wishing_proj.iloc[lid].geometry
+        if geom is None or geom.is_empty or geom.geom_type != 'LineString':
+            wishing_edges[lid] = []
+            continue
+        coords = list(geom.coords)
+        if len(coords) < 2:
+            wishing_edges[lid] = []
+            continue
+
+        # Get or find nearest node for start and end
+        sx, sy = coords[0][0], coords[0][1]
+        ex, ey = coords[-1][0], coords[-1][1]
+
+        skey = (round(sx / NODE_TOLERANCE) * NODE_TOLERANCE, round(sy / NODE_TOLERANCE) * NODE_TOLERANCE)
+        ekey = (round(ex / NODE_TOLERANCE) * NODE_TOLERANCE, round(ey / NODE_TOLERANCE) * NODE_TOLERANCE)
+
+        # Find nearest existing node if not exact match
+        if skey in coord_to_node:
+            snode = coord_to_node[skey]
+        else:
+            # Find nearest node
+            _, idx = nt.query([sx, sy])
+            snode = ni[idx]
+
+        if ekey in coord_to_node:
+            enode = coord_to_node[ekey]
+        else:
+            _, idx = nt.query([ex, ey])
+            enode = ni[idx]
+
+        if snode != enode:
+            wishing_edges[lid] = [[snode, enode, round(geom.length, 1)]]
+        else:
+            wishing_edges[lid] = []
+
     # Area centroids in WGS84
     areas_wgs = areas.to_crs(WGS84)
     centroids_wgs = [[round(c.x, 6), round(c.y, 6)] for c in areas_wgs.geometry.centroid]
@@ -246,6 +293,7 @@ def main():
         acc_dest_data=acc_dest_data,
         nodes_wgs=nodes_wgs,
         edges_list=edges_list,
+        wishing_edges=wishing_edges,
         centroids_wgs=centroids_wgs,
     )
 
@@ -257,7 +305,8 @@ def main():
 
 def generate_html(*, areas_geojson, completed_geojson, construction_geojson,
                   wishing_geojson, lane_names, area_names, sens_data,
-                  acc_orig_data, acc_dest_data, nodes_wgs, edges_list, centroids_wgs):
+                  acc_orig_data, acc_dest_data, nodes_wgs, edges_list,
+                  wishing_edges, centroids_wgs):
 
     # Serialize data compactly
     def js_json(obj):
@@ -389,7 +438,7 @@ button:hover{{background:#2980b9}}
     </div>
     <div id="lanes" class="tc act">
       <h3>Wishing List Lanes</h3>
-      <div class="note">Click a lane on the map or in this list to select/deselect it. Areas are colored by accessibility (red=low, green=high).</div>
+      <div class="note">Click a lane to select it. Selected lanes are included in path calculations. Areas colored by accessibility (red=low, green=high).</div>
       <div id="laneList"></div>
     </div>
     <div id="paths" class="tc">
@@ -419,6 +468,7 @@ const ACC_ORIG={js_json(acc_orig_data)};
 const ACC_DEST={js_json(acc_dest_data)};
 const NODES={js_json(nodes_wgs)};
 const EDGES={js_json(edges_list)};
+const WISHING_EDGES={js_json(wishing_edges)};
 const CENTROIDS={js_json(centroids_wgs)};
 
 // === STATE ===
@@ -642,6 +692,20 @@ function dijkstra(origIdx,destIdx,k){{
     if(!adj[b])adj[b]=[];
     adj[a].push({{n:b,w:w,len:len,bike:bike}});
     adj[b].push({{n:a,w:w,len:len,bike:bike}});
+  }}
+
+  // Add edges from selected wishing lanes (they are bike lanes)
+  for(const lid of sel){{
+    const edges=WISHING_EDGES[lid]||[];
+    for(const e of edges){{
+      const len=e[2];
+      const w=len; // bike lane, no penalty
+      const a=String(e[0]),b=String(e[1]);
+      if(!adj[a])adj[a]=[];
+      if(!adj[b])adj[b]=[];
+      adj[a].push({{n:b,w:w,len:len,bike:true}});
+      adj[b].push({{n:a,w:w,len:len,bike:true}});
+    }}
   }}
 
   const dist={{}},prev={{}},prevEdge={{}},visited=new Set();
