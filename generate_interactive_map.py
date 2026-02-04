@@ -90,6 +90,10 @@ def build_network(roads_proj, bike_lanes_list, tolerance=NODE_TOLERANCE):
 
 
 def compute_area_accessibility(G, node_coords, node_tree, node_ids, areas_proj, theta, k):
+    """Compute origin and destination accessibility for each area.
+    origin: acc_orig[i] = sum_j E_j * tau_ij^theta  (how many jobs area i can reach)
+    dest:   acc_dest[j] = sum_i P_i * tau_ij^theta  (how many people can reach area j)
+    """
     Gw = G.copy()
     for u, v in Gw.edges():
         l = Gw[u][v]['length']
@@ -98,10 +102,12 @@ def compute_area_accessibility(G, node_coords, node_tree, node_ids, areas_proj, 
     centroids = areas_proj.geometry.centroid
     n = len(areas_proj)
     center_nodes = [node_ids[node_tree.query([c.x, c.y])[1]] for c in centroids]
+    pop = areas_proj['pop'].values
     emp = areas_proj['emp'].values
     largest_cc = max(nx.connected_components(Gw), key=len)
 
-    acc = np.zeros(n)
+    acc_orig = np.zeros(n)
+    acc_dest = np.zeros(n)
     for i in range(n):
         if center_nodes[i] not in largest_cc:
             continue
@@ -112,8 +118,10 @@ def compute_area_accessibility(G, node_coords, node_tree, node_ids, areas_proj, 
         for j in range(n):
             if i != j and center_nodes[j] in dists:
                 tau = max(dists[center_nodes[j]] / 1000, 0.1)
-                acc[i] += emp[j] * (tau ** theta)
-    return acc
+                decay = tau ** theta
+                acc_orig[i] += emp[j] * decay
+                acc_dest[j] += pop[i] * decay
+    return acc_orig, acc_dest
 
 
 def geojson_from_gdf(gdf, props_list):
@@ -198,13 +206,15 @@ def main():
     G_base, nc, nt, ni = build_network(roads_proj, [completed, construction])
     print(f"  Network: {G_base.number_of_nodes()} nodes, {G_base.number_of_edges()} edges")
 
-    acc_data = {}
+    acc_orig_data = {}
+    acc_dest_data = {}
     for K in K_VALUES:
         for theta in THETA_VALUES:
             key = f"{K}_{theta}"
             print(f"  Accessibility K={K}, theta={theta}...")
-            acc = compute_area_accessibility(G_base, nc, nt, ni, areas_proj, theta, K)
-            acc_data[key] = [round(float(v), 2) for v in acc]
+            acc_orig, acc_dest = compute_area_accessibility(G_base, nc, nt, ni, areas_proj, theta, K)
+            acc_orig_data[key] = [round(float(v), 2) for v in acc_orig]
+            acc_dest_data[key] = [round(float(v), 2) for v in acc_dest]
 
     # Build network data for path finding (WGS84 coords)
     print("Exporting network for path finding...")
@@ -232,7 +242,8 @@ def main():
         lane_names=lane_names,
         area_names=area_names,
         sens_data=sens_data,
-        acc_data=acc_data,
+        acc_orig_data=acc_orig_data,
+        acc_dest_data=acc_dest_data,
         nodes_wgs=nodes_wgs,
         edges_list=edges_list,
         centroids_wgs=centroids_wgs,
@@ -246,7 +257,7 @@ def main():
 
 def generate_html(*, areas_geojson, completed_geojson, construction_geojson,
                   wishing_geojson, lane_names, area_names, sens_data,
-                  acc_data, nodes_wgs, edges_list, centroids_wgs):
+                  acc_orig_data, acc_dest_data, nodes_wgs, edges_list, centroids_wgs):
 
     # Serialize data compactly
     def js_json(obj):
@@ -271,6 +282,9 @@ body{{font-family:Arial,sans-serif;margin:0;display:flex;flex-direction:column;h
 select,button{{padding:7px 12px;border:none;border-radius:4px;font-size:13px}}
 button{{background:#3498db;color:#fff;cursor:pointer}}
 button:hover{{background:#2980b9}}
+.radio-group{{display:flex;gap:12px;align-items:center}}
+.radio-group label{{color:#fff;font-weight:400;cursor:pointer;display:flex;align-items:center;gap:4px}}
+.radio-group input{{cursor:pointer}}
 .main{{display:flex;flex:1;overflow:hidden}}
 .map-wrap{{flex:1;position:relative}}
 #map{{width:100%;height:100%}}
@@ -298,8 +312,8 @@ button:hover{{background:#2980b9}}
 .formula .math .var{{color:#f1c40f}}
 .path-stats{{background:#fff;border-radius:5px;padding:10px;margin-top:10px}}
 .path-stats .bar{{height:20px;border-radius:3px;display:flex;overflow:hidden;margin:6px 0}}
-.path-stats .bar-lane{{background:#27ae60}}
-.path-stats .bar-road{{background:#e74c3c}}
+.path-stats .bar-lane{{background:#1565C0}}
+.path-stats .bar-road{{background:#E65100}}
 .path-stats table{{width:100%;border-collapse:collapse;font-size:.9em}}
 .path-stats td{{padding:3px 6px}}
 .path-stats td:last-child{{text-align:right;font-weight:700}}
@@ -341,6 +355,13 @@ button:hover{{background:#2980b9}}
     </select>
   </div>
   <div class="cg">
+    <label>Color areas by:</label>
+    <div class="radio-group">
+      <label><input type="radio" name="accMode" value="origin" checked onchange="refresh()"> Origin (jobs reachable)</label>
+      <label><input type="radio" name="accMode" value="dest" onchange="refresh()"> Destination (people reaching)</label>
+    </div>
+  </div>
+  <div class="cg">
     <button onclick="clearSel()">Clear selection</button>
   </div>
 </div>
@@ -353,8 +374,8 @@ button:hover{{background:#2980b9}}
       <div class="legend-item"><div class="legend-line" style="background:#f39c12"></div>Under construction</div>
       <div class="legend-item"><div class="legend-line" style="background:#e74c3c"></div>Wishing list</div>
       <div class="legend-item"><div class="legend-line" style="background:#9b59b6;height:6px"></div>Selected lane</div>
-      <div class="legend-item"><div class="legend-line" style="background:#27ae60;height:6px"></div>Path on bike lane</div>
-      <div class="legend-item"><div class="legend-line" style="background:#e74c3c;height:6px"></div>Path on road</div>
+      <div class="legend-item"><div class="legend-line" style="background:#1565C0;height:6px"></div>Path on bike lane</div>
+      <div class="legend-item"><div class="legend-line" style="background:#E65100;height:6px"></div>Path on road</div>
     </div>
     <div class="info" id="info">
       <strong id="infoTitle"></strong>
@@ -394,7 +415,8 @@ const WISHING={js_json(wishing_geojson)};
 const LANE_NAMES={js_json(lane_names)};
 const AREA_NAMES={js_json(area_names)};
 const SENS={js_json(sens_data)};
-const ACC={js_json(acc_data)};
+const ACC_ORIG={js_json(acc_orig_data)};
+const ACC_DEST={js_json(acc_dest_data)};
 const NODES={js_json(nodes_wgs)};
 const EDGES={js_json(edges_list)};
 const CENTROIDS={js_json(centroids_wgs)};
@@ -405,8 +427,10 @@ let wishLyr,areasLyr,pathLyrGroup;
 
 // === MAP INIT ===
 const map=L.map("map").setView([31.78,35.22],12);
-L.tileLayer("https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png",{{
-  attribution:"&copy; OpenStreetMap"
+L.tileLayer("https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png",{{
+  attribution:'&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  subdomains:'abcd',
+  maxZoom:20
 }}).addTo(map);
 
 // Areas
@@ -494,9 +518,15 @@ function toggleLane(id){{
 
 function clearSel(){{sel.clear();refresh();}}
 
+function getAccMode(){{
+  const radio=document.querySelector('input[name="accMode"]:checked');
+  return radio?radio.value:"origin";
+}}
+
 function updateAreaColors(){{
-  const acc=ACC[paramKey()]||[];
-  if(!acc.length)return;
+  const mode=getAccMode();
+  const acc=(mode==="dest")?ACC_DEST[paramKey()]:ACC_ORIG[paramKey()];
+  if(!acc||!acc.length)return;
   const pos=acc.filter(a=>a>0);
   if(!pos.length)return;
   const mn=Math.min(...pos),mx=Math.max(...pos);
@@ -544,7 +574,7 @@ function showPath(){{
       let totalLaneDist=0,totalRoadDist=0;
       for(const seg of result.segments){{
         const coords=[[seg.from[1],seg.from[0]],[seg.to[1],seg.to[0]]];
-        const color=seg.bike?"#27ae60":"#e74c3c";
+        const color=seg.bike?"#1565C0":"#E65100";
         const line=L.polyline(coords,{{color:color,weight:6,opacity:.85}});
         pathLyrGroup.addLayer(line);
         if(seg.bike)totalLaneDist+=seg.len;
@@ -562,8 +592,8 @@ function showPath(){{
         '<p><b>Path found</b></p>'+
         '<table>'+
         '<tr><td>Total distance:</td><td>'+(totalDist/1000).toFixed(2)+' km</td></tr>'+
-        '<tr><td style="color:#27ae60">On bike lane:</td><td style="color:#27ae60">'+(totalLaneDist/1000).toFixed(2)+' km ('+lanePct.toFixed(1)+'%)</td></tr>'+
-        '<tr><td style="color:#e74c3c">On road:</td><td style="color:#e74c3c">'+(totalRoadDist/1000).toFixed(2)+' km ('+roadPct.toFixed(1)+'%)</td></tr>'+
+        '<tr><td style="color:#1565C0">On bike lane:</td><td style="color:#1565C0">'+(totalLaneDist/1000).toFixed(2)+' km ('+lanePct.toFixed(1)+'%)</td></tr>'+
+        '<tr><td style="color:#E65100">On road:</td><td style="color:#E65100">'+(totalRoadDist/1000).toFixed(2)+' km ('+roadPct.toFixed(1)+'%)</td></tr>'+
         '<tr><td>Segments:</td><td>'+result.segments.length+'</td></tr>'+
         '</table>'+
         '<div class="bar">'+
