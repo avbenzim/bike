@@ -293,12 +293,31 @@ button:hover{{background:#2980b9}}
 .path-ctl button{{width:100%;margin-top:8px}}
 .note{{background:#fff3cd;padding:8px;border-radius:4px;margin-bottom:10px;font-size:.85em}}
 #totalImp{{font-size:.95em}}
+.formula{{background:#1a252f;color:#ccc;padding:6px 20px;font-size:.85em;display:flex;align-items:center;gap:15px}}
+.formula .math{{color:#fff;font-family:'Times New Roman',serif;font-size:1.1em}}
+.formula .math .var{{color:#f1c40f}}
+.path-stats{{background:#fff;border-radius:5px;padding:10px;margin-top:10px}}
+.path-stats .bar{{height:20px;border-radius:3px;display:flex;overflow:hidden;margin:6px 0}}
+.path-stats .bar-lane{{background:#27ae60}}
+.path-stats .bar-road{{background:#e74c3c}}
+.path-stats table{{width:100%;border-collapse:collapse;font-size:.9em}}
+.path-stats td{{padding:3px 6px}}
+.path-stats td:last-child{{text-align:right;font-weight:700}}
 </style>
 </head>
 <body>
 <div class="header">
   <h1>Jerusalem Bike Lane Analysis</h1>
   <span id="totalImp">Estimated total improvement: 0%</span>
+</div>
+<div class="formula">
+  <span>Accessibility model:</span>
+  <span class="math">
+    N = &Sigma;<sub>i</sub> &Sigma;<sub>j</sub> P<sub>i</sub> &middot; E<sub>j</sub> &middot; &tau;<sub>ij</sub><sup class="var">&theta;</sup>
+    &nbsp;&nbsp;where&nbsp;
+    &tau;<sub>ij</sub> = shortest path with weight
+    <span class="var">K</span>&middot;d for roads,&nbsp; 1&middot;d for bike lanes
+  </span>
 </div>
 <div class="controls">
   <div class="cg">
@@ -333,7 +352,9 @@ button:hover{{background:#2980b9}}
       <div class="legend-item"><div class="legend-line" style="background:#27ae60"></div>Existing lanes</div>
       <div class="legend-item"><div class="legend-line" style="background:#f39c12"></div>Under construction</div>
       <div class="legend-item"><div class="legend-line" style="background:#e74c3c"></div>Wishing list</div>
-      <div class="legend-item"><div class="legend-line" style="background:#9b59b6;height:6px"></div>Selected / Path</div>
+      <div class="legend-item"><div class="legend-line" style="background:#9b59b6;height:6px"></div>Selected lane</div>
+      <div class="legend-item"><div class="legend-line" style="background:#27ae60;height:6px"></div>Path on bike lane</div>
+      <div class="legend-item"><div class="legend-line" style="background:#e74c3c;height:6px"></div>Path on road</div>
     </div>
     <div class="info" id="info">
       <strong id="infoTitle"></strong>
@@ -380,7 +401,7 @@ const CENTROIDS={js_json(centroids_wgs)};
 
 // === STATE ===
 const sel=new Set();
-let wishLyr,areasLyr,pathLyr;
+let wishLyr,areasLyr,pathLyrGroup;
 
 // === MAP INIT ===
 const map=L.map("map").setView([31.78,35.22],12);
@@ -510,26 +531,67 @@ function showPath(){{
   const oi=document.getElementById("origSel").value;
   const di=document.getElementById("destSel").value;
   if(oi===""||di===""){{alert("Please select origin and destination areas.");return;}}
-  if(pathLyr)map.removeLayer(pathLyr);
+  if(pathLyrGroup)map.removeLayer(pathLyrGroup);
 
   const k=parseInt(document.getElementById("kSel").value);
   document.getElementById("pathInfo").innerHTML="<p>Computing path...</p>";
 
-  // Use setTimeout to allow UI update
   setTimeout(()=>{{
-    const path=dijkstra(parseInt(oi),parseInt(di),k);
-    if(path&&path.length>1){{
-      pathLyr=L.polyline(path.map(p=>[p[1],p[0]]),{{color:"#9b59b6",weight:6,opacity:.8,dashArray:"10,6"}}).addTo(map);
-      map.fitBounds(pathLyr.getBounds(),{{padding:[30,30]}});
-      document.getElementById("pathInfo").innerHTML="<p><b>Path found</b> ("+path.length+" waypoints)</p>";
+    const result=dijkstra(parseInt(oi),parseInt(di),k);
+    if(result&&result.segments.length>0){{
+      // Draw segments with different colors
+      pathLyrGroup=L.layerGroup();
+      let totalLaneDist=0,totalRoadDist=0;
+      for(const seg of result.segments){{
+        const coords=[[seg.from[1],seg.from[0]],[seg.to[1],seg.to[0]]];
+        const color=seg.bike?"#27ae60":"#e74c3c";
+        const line=L.polyline(coords,{{color:color,weight:6,opacity:.85}});
+        pathLyrGroup.addLayer(line);
+        if(seg.bike)totalLaneDist+=seg.len;
+        else totalRoadDist+=seg.len;
+      }}
+      pathLyrGroup.addTo(map);
+      map.fitBounds(pathLyrGroup.getBounds(),{{padding:[30,30]}});
+
+      // Report stats
+      const totalDist=totalLaneDist+totalRoadDist;
+      const lanePct=totalDist>0?(100*totalLaneDist/totalDist):0;
+      const roadPct=totalDist>0?(100*totalRoadDist/totalDist):0;
+      document.getElementById("pathInfo").innerHTML=
+        '<div class="path-stats">'+
+        '<p><b>Path found</b></p>'+
+        '<table>'+
+        '<tr><td>Total distance:</td><td>'+(totalDist/1000).toFixed(2)+' km</td></tr>'+
+        '<tr><td style="color:#27ae60">On bike lane:</td><td style="color:#27ae60">'+(totalLaneDist/1000).toFixed(2)+' km ('+lanePct.toFixed(1)+'%)</td></tr>'+
+        '<tr><td style="color:#e74c3c">On road:</td><td style="color:#e74c3c">'+(totalRoadDist/1000).toFixed(2)+' km ('+roadPct.toFixed(1)+'%)</td></tr>'+
+        '<tr><td>Segments:</td><td>'+result.segments.length+'</td></tr>'+
+        '</table>'+
+        '<div class="bar">'+
+        '<div class="bar-lane" style="width:'+lanePct+'%"></div>'+
+        '<div class="bar-road" style="width:'+roadPct+'%"></div>'+
+        '</div>'+
+        '</div>';
     }}else{{
       document.getElementById("pathInfo").innerHTML='<p style="color:#e74c3c">No path found between these areas.</p>';
     }}
   }},50);
 }}
 
+// Build edge lookup: "nodeA_nodeB" -> {{len, bike}}
+let edgeLookup=null;
+function getEdgeLookup(){{
+  if(edgeLookup)return edgeLookup;
+  edgeLookup={{}};
+  for(const e of EDGES){{
+    const a=String(e[0]),b=String(e[1]);
+    const info={{len:e[2],bike:!!e[3]}};
+    edgeLookup[a+"_"+b]=info;
+    edgeLookup[b+"_"+a]=info;
+  }}
+  return edgeLookup;
+}}
+
 function dijkstra(origIdx,destIdx,k){{
-  // Find nearest network nodes
   const oc=CENTROIDS[origIdx],dc=CENTROIDS[destIdx];
   let oNode=null,dNode=null,oD=Infinity,dD=Infinity;
   for(const[nid,c]of Object.entries(NODES)){{
@@ -540,21 +602,20 @@ function dijkstra(origIdx,destIdx,k){{
   }}
   if(!oNode||!dNode)return null;
 
-  // Build adjacency
+  // Build adjacency with edge info
   const adj={{}};
   for(const e of EDGES){{
-    const w=e[3]?e[2]:e[2]*k;
+    const len=e[2],bike=!!e[3];
+    const w=bike?len:len*k;
     const a=String(e[0]),b=String(e[1]);
     if(!adj[a])adj[a]=[];
     if(!adj[b])adj[b]=[];
-    adj[a].push({{n:b,w:w}});
-    adj[b].push({{n:a,w:w}});
+    adj[a].push({{n:b,w:w,len:len,bike:bike}});
+    adj[b].push({{n:a,w:w,len:len,bike:bike}});
   }}
 
-  // Dijkstra with simple priority queue
-  const dist={{}},prev={{}},visited=new Set();
+  const dist={{}},prev={{}},prevEdge={{}},visited=new Set();
   dist[oNode]=0;
-  // Use a sorted array as priority queue (adequate for one-shot pathfinding)
   let pq=[[0,oNode]];
 
   while(pq.length){{
@@ -562,12 +623,11 @@ function dijkstra(origIdx,destIdx,k){{
     if(visited.has(cur))continue;
     visited.add(cur);
     if(cur===dNode)break;
-    for(const{{n,w}}of(adj[cur]||[])){{
+    for(const{{n,w,len,bike}}of(adj[cur]||[])){{
       if(visited.has(n))continue;
       const nd=cd+w;
       if(dist[n]===undefined||nd<dist[n]){{
-        dist[n]=nd;prev[n]=cur;
-        // Insert sorted
+        dist[n]=nd;prev[n]=cur;prevEdge[n]={{len:len,bike:bike}};
         let ins=pq.findIndex(x=>x[0]>nd);
         if(ins<0)ins=pq.length;
         pq.splice(ins,0,[nd,n]);
@@ -576,10 +636,17 @@ function dijkstra(origIdx,destIdx,k){{
   }}
 
   if(dist[dNode]===undefined)return null;
-  const path=[];
+
+  // Reconstruct path as segments with edge info
+  const segments=[];
   let c=dNode;
-  while(c){{path.unshift(NODES[c]);c=prev[c];}}
-  return path;
+  while(prev[c]!==undefined){{
+    const p=prev[c];
+    const e=prevEdge[c];
+    segments.unshift({{from:NODES[p],to:NODES[c],len:e.len,bike:e.bike}});
+    c=p;
+  }}
+  return {{segments:segments}};
 }}
 
 // === EVENT LISTENERS ===
