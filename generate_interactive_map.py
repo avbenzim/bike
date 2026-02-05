@@ -231,7 +231,9 @@ def main():
     # Pre-compute edges for each wishing list lane (for online path calculation)
     print("Computing wishing lane edges for online path finding...")
     wishing_proj = wishing.to_crs(TARGET_CRS)
+    wishing_wgs = wishing.to_crs(WGS84)
     wishing_edges = {}  # lane_id -> [[nodeA, nodeB, length], ...]
+    wishing_geoms = {}  # lane_id -> [[lon, lat], ...] for visualization
 
     # Build a coord_to_node lookup from the base network
     coord_to_node = {}
@@ -241,13 +243,19 @@ def main():
 
     for lid in range(len(wishing_proj)):
         geom = wishing_proj.iloc[lid].geometry
+        geom_wgs = wishing_wgs.iloc[lid].geometry
         if geom is None or geom.is_empty or geom.geom_type != 'LineString':
             wishing_edges[lid] = []
+            wishing_geoms[lid] = []
             continue
         coords = list(geom.coords)
         if len(coords) < 2:
             wishing_edges[lid] = []
+            wishing_geoms[lid] = []
             continue
+
+        # Store WGS84 coordinates for visualization
+        wishing_geoms[lid] = [[round(c[0], 6), round(c[1], 6)] for c in geom_wgs.coords]
 
         # Get or find nearest node for start and end
         sx, sy = coords[0][0], coords[0][1]
@@ -308,6 +316,7 @@ def main():
         nodes_wgs=nodes_wgs,
         edges_list=edges_list,
         wishing_edges=wishing_edges,
+        wishing_geoms=wishing_geoms,
         centroids_wgs=centroids_wgs,
     )
 
@@ -320,7 +329,7 @@ def main():
 def generate_html(*, areas_geojson, completed_geojson, construction_geojson,
                   wishing_geojson, lane_names, area_names, sens_data,
                   acc_orig_data, acc_dest_data, area_pop, area_emp, area_center_nodes,
-                  nodes_wgs, edges_list, wishing_edges, centroids_wgs):
+                  nodes_wgs, edges_list, wishing_edges, wishing_geoms, centroids_wgs):
 
     # Serialize data compactly
     def js_json(obj):
@@ -433,9 +442,9 @@ button:hover{{background:#2980b9}}
     <div id="map"></div>
     <div class="legend">
       <strong>Legend - Lanes</strong>
-      <div class="legend-item"><div class="legend-line" style="background:#27ae60"></div>Existing lanes</div>
-      <div class="legend-item"><div class="legend-line" style="background:#f39c12"></div>Under construction</div>
-      <div class="legend-item"><div class="legend-line" style="background:#e74c3c"></div>Wishing list</div>
+      <div class="legend-item"><div class="legend-line" style="background:#1B5E20"></div>Existing lanes</div>
+      <div class="legend-item"><div class="legend-line" style="background:#81C784"></div>Under construction</div>
+      <div class="legend-item"><div class="legend-line" style="background:#FF9800"></div>Wishing list</div>
       <div class="legend-item"><div class="legend-line" style="background:#9b59b6;height:6px"></div>Selected lane</div>
       <div class="legend-item"><div class="legend-line" style="background:#1565C0;height:6px"></div>Path on bike lane</div>
       <div class="legend-item"><div class="legend-line" style="background:#E65100;height:6px"></div>Path on road</div>
@@ -519,6 +528,7 @@ const AREA_NODES={js_json(area_center_nodes)};
 const NODES={js_json(nodes_wgs)};
 const EDGES={js_json(edges_list)};
 const WISHING_EDGES={js_json(wishing_edges)};
+const WISHING_GEOMS={js_json(wishing_geoms)};
 const CENTROIDS={js_json(centroids_wgs)};
 
 // === STATE ===
@@ -543,23 +553,23 @@ areasLyr=L.geoJSON(AREAS,{{
   }}
 }}).addTo(map);
 
-// Completed
+// Completed (dark green)
 if(COMPLETED.features.length)
-  L.geoJSON(COMPLETED,{{style:{{color:"#27ae60",weight:3,opacity:.8}},
+  L.geoJSON(COMPLETED,{{style:{{color:"#1B5E20",weight:3,opacity:.8}},
     onEachFeature:(f,l)=>l.bindPopup("<b>Existing:</b> "+(f.properties.Name||""))
   }}).addTo(map);
 
-// Construction
+// Construction (light green)
 if(CONSTRUCTION.features.length)
-  L.geoJSON(CONSTRUCTION,{{style:{{color:"#f39c12",weight:3,opacity:.8}},
+  L.geoJSON(CONSTRUCTION,{{style:{{color:"#81C784",weight:3,opacity:.8}},
     onEachFeature:(f,l)=>l.bindPopup("<b>Under construction:</b> "+(f.properties.Name||""))
   }}).addTo(map);
 
-// Wishing list
+// Wishing list (orange, purple when selected)
 wishLyr=L.geoJSON(WISHING,{{
   style:f=>{{
     const s=sel.has(f.properties.lane_id);
-    return {{color:s?"#9b59b6":"#e74c3c",weight:s?5:3,opacity:.8}};
+    return {{color:s?"#9b59b6":"#FF9800",weight:s?5:3,opacity:.8}};
   }},
   onEachFeature:(f,layer)=>{{
     const lid=f.properties.lane_id;
@@ -586,7 +596,7 @@ function refresh(){{
   // Update wishing layer style
   wishLyr.setStyle(f=>{{
     const s=sel.has(f.properties.lane_id);
-    return {{color:s?"#9b59b6":"#e74c3c",weight:s?5:3,opacity:.8}};
+    return {{color:s?"#9b59b6":"#FF9800",weight:s?5:3,opacity:.8}};
   }});
   // Update lane list
   buildLaneList();
@@ -597,6 +607,8 @@ function refresh(){{
   document.getElementById("totalImp").textContent="Estimated total improvement: +"+tot.toFixed(2)+"%";
   // Update area colors
   updateAreaColors();
+  // Update compute panel
+  updateComputePanel();
 }}
 
 function buildLaneList(){{
@@ -616,7 +628,7 @@ function toggleLane(id){{
   refresh();
 }}
 
-function clearSel(){{sel.clear();refresh();}}
+function clearSel(){{sel.clear();refresh();updateComputePanel();}}
 
 function getAccMode(){{
   const radio=document.querySelector('input[name="accMode"]:checked');
@@ -698,13 +710,21 @@ function showPath(){{
   document.getElementById("pathInfo").innerHTML="<p>Computing path...</p>";
 
   setTimeout(()=>{{
+    try{{
     const result=dijkstra(parseInt(oi),parseInt(di),k);
     if(result&&result.segments.length>0){{
       // Draw segments with different colors
       pathLyrGroup=L.layerGroup();
       let totalLaneDist=0,totalRoadDist=0;
       for(const seg of result.segments){{
-        const coords=[[seg.from[1],seg.from[0]],[seg.to[1],seg.to[0]]];
+        let coords;
+        if(seg.geom){{
+          // Wishing lane with full geometry
+          coords=seg.geom.map(c=>[c[1],c[0]]);
+        }}else{{
+          // Regular segment (straight line between nodes)
+          coords=[[seg.from[1],seg.from[0]],[seg.to[1],seg.to[0]]];
+        }}
         const color=seg.bike?"#1565C0":"#E65100";
         const line=L.polyline(coords,{{color:color,weight:6,opacity:.85}});
         pathLyrGroup.addLayer(line);
@@ -734,6 +754,10 @@ function showPath(){{
         '</div>';
     }}else{{
       document.getElementById("pathInfo").innerHTML='<p style="color:#e74c3c">No path found between these areas.</p>';
+    }}
+    }}catch(err){{
+      document.getElementById("pathInfo").innerHTML='<p style="color:#e74c3c">Error computing path: '+err.message+'</p>';
+      console.error(err);
     }}
   }},50);
 }}
@@ -784,8 +808,8 @@ function dijkstra(origIdx,destIdx,k){{
       const a=String(e[0]),b=String(e[1]);
       if(!adj[a])adj[a]=[];
       if(!adj[b])adj[b]=[];
-      adj[a].push({{n:b,w:w,len:len,bike:true}});
-      adj[b].push({{n:a,w:w,len:len,bike:true}});
+      adj[a].push({{n:b,w:w,len:len,bike:true,laneId:lid}});
+      adj[b].push({{n:a,w:w,len:len,bike:true,laneId:lid}});
     }}
   }}
 
@@ -798,11 +822,11 @@ function dijkstra(origIdx,destIdx,k){{
     if(visited.has(cur))continue;
     visited.add(cur);
     if(cur===dNode)break;
-    for(const{{n,w,len,bike}}of(adj[cur]||[])){{
+    for(const{{n,w,len,bike,laneId}}of(adj[cur]||[])){{
       if(visited.has(n))continue;
       const nd=cd+w;
       if(dist[n]===undefined||nd<dist[n]){{
-        dist[n]=nd;prev[n]=cur;prevEdge[n]={{len:len,bike:bike}};
+        dist[n]=nd;prev[n]=cur;prevEdge[n]={{len:len,bike:bike,laneId:laneId}};
         let ins=pq.findIndex(x=>x[0]>nd);
         if(ins<0)ins=pq.length;
         pq.splice(ins,0,[nd,n]);
@@ -818,7 +842,12 @@ function dijkstra(origIdx,destIdx,k){{
   while(prev[c]!==undefined){{
     const p=prev[c];
     const e=prevEdge[c];
-    segments.unshift({{from:NODES[p],to:NODES[c],len:e.len,bike:e.bike}});
+    // If this is a wishing lane segment, use the lane geometry
+    if(e.laneId!==undefined && WISHING_GEOMS[e.laneId]){{
+      segments.unshift({{geom:WISHING_GEOMS[e.laneId],len:e.len,bike:true}});
+    }}else{{
+      segments.unshift({{from:NODES[p],to:NODES[c],len:e.len,bike:e.bike}});
+    }}
     c=p;
   }}
   return {{segments:segments}};
