@@ -281,6 +281,17 @@ def main():
 
     # Generate HTML
     print("Generating HTML...")
+    # Extract area data for online computation
+    area_pop = [round(float(v), 0) for v in areas_proj['pop'].values]
+    area_emp = [round(float(v), 0) for v in areas_proj['emp'].values]
+
+    # Pre-compute area center nodes (which network node is closest to each area centroid)
+    centroids_proj = [[round(c.x, 1), round(c.y, 1)] for c in areas_proj.geometry.centroid]
+    area_center_nodes = []
+    for c in areas_proj.geometry.centroid:
+        _, idx = nt.query([c.x, c.y])
+        area_center_nodes.append(ni[idx])
+
     html = generate_html(
         areas_geojson=areas_geojson,
         completed_geojson=completed_geojson,
@@ -291,6 +302,9 @@ def main():
         sens_data=sens_data,
         acc_orig_data=acc_orig_data,
         acc_dest_data=acc_dest_data,
+        area_pop=area_pop,
+        area_emp=area_emp,
+        area_center_nodes=area_center_nodes,
         nodes_wgs=nodes_wgs,
         edges_list=edges_list,
         wishing_edges=wishing_edges,
@@ -305,8 +319,8 @@ def main():
 
 def generate_html(*, areas_geojson, completed_geojson, construction_geojson,
                   wishing_geojson, lane_names, area_names, sens_data,
-                  acc_orig_data, acc_dest_data, nodes_wgs, edges_list,
-                  wishing_edges, centroids_wgs):
+                  acc_orig_data, acc_dest_data, area_pop, area_emp, area_center_nodes,
+                  nodes_wgs, edges_list, wishing_edges, centroids_wgs):
 
     # Serialize data compactly
     def js_json(obj):
@@ -418,13 +432,34 @@ button:hover{{background:#2980b9}}
   <div class="map-wrap">
     <div id="map"></div>
     <div class="legend">
-      <strong>Legend</strong>
+      <strong>Legend - Lanes</strong>
       <div class="legend-item"><div class="legend-line" style="background:#27ae60"></div>Existing lanes</div>
       <div class="legend-item"><div class="legend-line" style="background:#f39c12"></div>Under construction</div>
       <div class="legend-item"><div class="legend-line" style="background:#e74c3c"></div>Wishing list</div>
       <div class="legend-item"><div class="legend-line" style="background:#9b59b6;height:6px"></div>Selected lane</div>
       <div class="legend-item"><div class="legend-line" style="background:#1565C0;height:6px"></div>Path on bike lane</div>
       <div class="legend-item"><div class="legend-line" style="background:#E65100;height:6px"></div>Path on road</div>
+      <hr style="margin:8px 0;border:none;border-top:1px solid #ccc">
+      <strong>Area Accessibility</strong>
+      <div class="legend-item" style="flex-direction:column;align-items:flex-start;gap:2px">
+        <div style="display:flex;align-items:center;gap:4px">
+          <div style="width:80px;height:12px;background:linear-gradient(to right,rgb(255,0,100),rgb(128,128,100),rgb(0,255,100));border-radius:2px"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;width:80px;font-size:0.75em">
+          <span>Low</span><span>High</span>
+        </div>
+      </div>
+      <div id="deltaLegend" style="display:none;margin-top:4px">
+        <strong>Change (1 lane selected)</strong>
+        <div class="legend-item" style="flex-direction:column;align-items:flex-start;gap:2px">
+          <div style="display:flex;align-items:center;gap:4px">
+            <div style="width:80px;height:12px;background:linear-gradient(to right,rgb(255,100,100),rgb(255,255,255),rgb(100,100,255));border-radius:2px"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;width:80px;font-size:0.75em">
+            <span>-</span><span>0</span><span>+</span>
+          </div>
+        </div>
+      </div>
     </div>
     <div class="info" id="info">
       <strong id="infoTitle"></strong>
@@ -435,11 +470,23 @@ button:hover{{background:#2980b9}}
     <div class="tabs">
       <button class="act" onclick="showTab('lanes',this)">Lanes</button>
       <button onclick="showTab('paths',this)">Paths</button>
+      <button onclick="showTab('compute',this)">Compute</button>
     </div>
     <div id="lanes" class="tc act">
       <h3>Wishing List Lanes</h3>
       <div class="note">Click a lane to select it. Selected lanes are included in path calculations. Areas colored by accessibility (red=low, green=high).</div>
       <div id="laneList"></div>
+    </div>
+    <div id="compute" class="tc">
+      <h3>Compute Accessibility</h3>
+      <div class="note">Calculate exact accessibility for current network (with selected lanes). This takes 30-60 seconds.</div>
+      <div class="path-ctl">
+        <p><b>Selected lanes:</b> <span id="selCount">0</span></p>
+        <p><b>Parameters:</b> K=<span id="compK">100</span>, &theta;=<span id="compT">-1.0</span></p>
+        <button onclick="computeAccessibility()" id="computeBtn">Compute Accessibility</button>
+        <div id="computeProgress" style="margin-top:10px"></div>
+      </div>
+      <div id="computeResults" style="margin-top:10px"></div>
     </div>
     <div id="paths" class="tc">
       <h3>Shortest Path</h3>
@@ -466,6 +513,9 @@ const AREA_NAMES={js_json(area_names)};
 const SENS={js_json(sens_data)};
 const ACC_ORIG={js_json(acc_orig_data)};
 const ACC_DEST={js_json(acc_dest_data)};
+const AREA_POP={js_json(area_pop)};
+const AREA_EMP={js_json(area_emp)};
+const AREA_NODES={js_json(area_center_nodes)};
 const NODES={js_json(nodes_wgs)};
 const EDGES={js_json(edges_list)};
 const WISHING_EDGES={js_json(wishing_edges)};
@@ -573,9 +623,40 @@ function getAccMode(){{
   return radio?radio.value:"origin";
 }}
 
+// Store computed accessibility results
+let computedAcc = null;
+let computedKey = null;
+let computedSel = null;
+
 function updateAreaColors(){{
   const mode=getAccMode();
-  const acc=(mode==="dest")?ACC_DEST[paramKey()]:ACC_ORIG[paramKey()];
+  const key=paramKey();
+  const deltaLegend=document.getElementById("deltaLegend");
+
+  // If we have computed results for current selection, show delta
+  if(computedAcc && computedKey===key && computedSel===JSON.stringify([...sel].sort())){{
+    const base=(mode==="dest")?ACC_DEST[key]:ACC_ORIG[key];
+    const comp=(mode==="dest")?computedAcc.dest:computedAcc.orig;
+    if(base&&comp){{
+      const delta=comp.map((v,i)=>v-base[i]);
+      const maxAbs=Math.max(...delta.map(d=>Math.abs(d)),0.01);
+      areasLyr.eachLayer(layer=>{{
+        const aid=layer.feature.properties.area_id;
+        const v=delta[aid]||0;
+        const n=v/maxAbs;
+        let r,g,b;
+        if(n>=0){{r=Math.round(255*(1-n)+100*n);g=Math.round(255*(1-n)+100*n);b=255;}}
+        else{{const a=-n;r=255;g=Math.round(255*(1-a)+100*a);b=Math.round(255*(1-a)+100*a);}}
+        layer.setStyle({{fillColor:"rgb("+r+","+g+","+b+")",fillOpacity:.5,weight:1,opacity:.5,color:"#2c3e50"}});
+      }});
+      if(deltaLegend)deltaLegend.style.display="block";
+      return;
+    }}
+  }}
+
+  // Show baseline accessibility coloring
+  if(deltaLegend)deltaLegend.style.display="none";
+  const acc=(mode==="dest")?ACC_DEST[key]:ACC_ORIG[key];
   if(!acc||!acc.length)return;
   const pos=acc.filter(a=>a>0);
   if(!pos.length)return;
@@ -743,13 +824,149 @@ function dijkstra(origIdx,destIdx,k){{
   return {{segments:segments}};
 }}
 
+// === ONLINE COMPUTATION ===
+function updateComputePanel(){{
+  document.getElementById("selCount").textContent=sel.size;
+  document.getElementById("compK").textContent=document.getElementById("kSel").value;
+  document.getElementById("compT").textContent=document.getElementById("tSel").value;
+}}
+
+function computeAccessibility(){{
+  const k=parseInt(document.getElementById("kSel").value);
+  const theta=parseFloat(document.getElementById("tSel").value);
+  const key=paramKey();
+  const selArr=[...sel].sort();
+  const selKey=JSON.stringify(selArr);
+
+  const btn=document.getElementById("computeBtn");
+  const prog=document.getElementById("computeProgress");
+  const results=document.getElementById("computeResults");
+
+  btn.disabled=true;
+  btn.textContent="Computing...";
+  prog.innerHTML="<p>Building network with "+sel.size+" selected lanes...</p>";
+
+  setTimeout(()=>{{
+    // Build adjacency list with selected lanes
+    const adj={{}};
+    for(const e of EDGES){{
+      const len=e[2],bike=!!e[3];
+      const w=bike?len:len*k;
+      const a=String(e[0]),b=String(e[1]);
+      if(!adj[a])adj[a]=[];
+      if(!adj[b])adj[b]=[];
+      adj[a].push({{n:b,w:w,len:len}});
+      adj[b].push({{n:a,w:w,len:len}});
+    }}
+    for(const lid of sel){{
+      const edges=WISHING_EDGES[lid]||[];
+      for(const e of edges){{
+        const len=e[2],w=len;
+        const a=String(e[0]),b=String(e[1]);
+        if(!adj[a])adj[a]=[];
+        if(!adj[b])adj[b]=[];
+        adj[a].push({{n:b,w:w,len:len}});
+        adj[b].push({{n:a,w:w,len:len}});
+      }}
+    }}
+
+    const n=AREA_NODES.length;
+    const acc_orig=new Array(n).fill(0);
+    const acc_dest=new Array(n).fill(0);
+    let totalN=0;
+    let processed=0;
+
+    function processArea(i){{
+      if(i>=n){{
+        // Done - show results
+        computedAcc={{orig:acc_orig,dest:acc_dest,totalN:totalN}};
+        computedKey=key;
+        computedSel=selKey;
+
+        // Compute baseline for comparison
+        const baseOrig=ACC_ORIG[key]||[];
+        const baseDest=ACC_DEST[key]||[];
+        let baseN=0;
+        for(let ii=0;ii<n;ii++){{
+          for(let jj=0;jj<n;jj++){{
+            if(ii!==jj)baseN+=AREA_POP[ii]*AREA_EMP[jj];
+          }}
+        }}
+        // Use actual baseline N from pre-computed (approximate)
+        const baseOrigSum=baseOrig.reduce((a,b)=>a+b,0);
+        const newOrigSum=acc_orig.reduce((a,b)=>a+b,0);
+        const improvement=baseOrigSum>0?100*(newOrigSum-baseOrigSum)/baseOrigSum:0;
+
+        btn.disabled=false;
+        btn.textContent="Compute Accessibility";
+        prog.innerHTML="<p style='color:#27ae60'>Computation complete!</p>";
+        results.innerHTML=
+          '<div class="path-stats">'+
+          '<p><b>Results for selected network:</b></p>'+
+          '<table>'+
+          '<tr><td>Total N (gravity sum):</td><td>'+totalN.toExponential(3)+'</td></tr>'+
+          '<tr><td>Improvement vs baseline:</td><td style="color:'+(improvement>=0?"#27ae60":"#e74c3c")+'">'+
+            (improvement>=0?"+":"")+improvement.toFixed(3)+'%</td></tr>'+
+          '</table>'+
+          '<p style="font-size:.85em;margin-top:8px">Area colors now show change from baseline.</p>'+
+          '</div>';
+        updateAreaColors();
+        return;
+      }}
+
+      const src=String(AREA_NODES[i]);
+      // Run Dijkstra from area i
+      const dist={{}},visited=new Set();
+      dist[src]=0;
+      let pq=[[0,src]];
+      while(pq.length){{
+        const[cd,cur]=pq.shift();
+        if(visited.has(cur))continue;
+        visited.add(cur);
+        for(const{{n:nb,w}}of(adj[cur]||[])){{
+          if(visited.has(nb))continue;
+          const nd=cd+w;
+          if(dist[nb]===undefined||nd<dist[nb]){{
+            dist[nb]=nd;
+            let ins=pq.findIndex(x=>x[0]>nd);
+            if(ins<0)ins=pq.length;
+            pq.splice(ins,0,[nd,nb]);
+          }}
+        }}
+      }}
+
+      // Accumulate accessibility
+      for(let j=0;j<n;j++){{
+        if(i===j)continue;
+        const dstNode=String(AREA_NODES[j]);
+        if(dist[dstNode]!==undefined){{
+          const tau=Math.max(dist[dstNode]/1000,0.1);
+          const decay=Math.pow(tau,theta);
+          acc_orig[i]+=AREA_EMP[j]*decay;
+          acc_dest[j]+=AREA_POP[i]*decay;
+          totalN+=AREA_POP[i]*AREA_EMP[j]*decay;
+        }}
+      }}
+
+      processed++;
+      if(processed%10===0){{
+        prog.innerHTML="<p>Processing areas: "+processed+"/"+n+" ("+Math.round(100*processed/n)+"%)</p>";
+      }}
+      setTimeout(()=>processArea(i+1),0);
+    }}
+
+    processArea(0);
+  }},50);
+}}
+
 // === EVENT LISTENERS ===
-document.getElementById("kSel").onchange=refresh;
-document.getElementById("tSel").onchange=refresh;
+document.getElementById("kSel").onchange=()=>{{refresh();updateComputePanel();}};
+document.getElementById("tSel").onchange=()=>{{refresh();updateComputePanel();}};
 
 // Initial render
 buildLaneList();
 updateAreaColors();
+updateComputePanel();
 </script>
 </body>
 </html>'''
