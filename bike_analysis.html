@@ -377,7 +377,7 @@ function showPath(){
     const result=dijkstra(parseInt(oi),parseInt(di),k);
     if(result&&result.segments.length>0){
       // Draw segments with different colors
-      pathLyrGroup=L.layerGroup();
+      pathLyrGroup=L.featureGroup();
       let totalLaneDist=0,totalRoadDist=0;
       for(const seg of result.segments){
         let coords;
@@ -395,7 +395,9 @@ function showPath(){
         else totalRoadDist+=seg.len;
       }
       pathLyrGroup.addTo(map);
-      map.fitBounds(pathLyrGroup.getBounds(),{padding:[30,30]});
+      if(pathLyrGroup.getLayers().length>0){
+        map.fitBounds(pathLyrGroup.getBounds(),{padding:[30,30]});
+      }
 
       // Report stats
       const totalDist=totalLaneDist+totalRoadDist;
