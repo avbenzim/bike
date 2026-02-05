@@ -54,6 +54,7 @@ def build_network(roads_proj, bike_lanes_list, tolerance=NODE_TOLERANCE):
         node_coords[nid] = (x, y)
         return nid
 
+    # First, add all road segments
     for _, row in roads_proj.iterrows():
         geom = row.geometry
         if geom is None or geom.is_empty or geom.geom_type != 'LineString':
@@ -65,6 +66,12 @@ def build_network(roads_proj, bike_lanes_list, tolerance=NODE_TOLERANCE):
             if s != e:
                 G.add_edge(s, e, length=geom.length, has_bike_lane=False)
 
+    # Build KDTree of road nodes for finding nearest connections
+    road_node_ids = list(node_coords.keys())
+    road_coords_array = np.array([node_coords[n] for n in road_node_ids])
+    road_tree = cKDTree(road_coords_array) if len(road_coords_array) > 0 else None
+
+    # Add bike lanes - connect to nearest road nodes
     for bl_gdf in bike_lanes_list:
         if bl_gdf is None or len(bl_gdf) == 0:
             continue
@@ -75,9 +82,24 @@ def build_network(roads_proj, bike_lanes_list, tolerance=NODE_TOLERANCE):
                 continue
             coords = list(geom.coords)
             if len(coords) >= 2:
-                s = get_or_create_node(coords[0][0], coords[0][1])
-                e = get_or_create_node(coords[-1][0], coords[-1][1])
+                # Find nearest road nodes for start and end of bike lane
+                sx, sy = coords[0][0], coords[0][1]
+                ex, ey = coords[-1][0], coords[-1][1]
+
+                if road_tree is not None:
+                    # Find nearest road node to start
+                    _, s_idx = road_tree.query([sx, sy])
+                    s = road_node_ids[s_idx]
+
+                    # Find nearest road node to end
+                    _, e_idx = road_tree.query([ex, ey])
+                    e = road_node_ids[e_idx]
+                else:
+                    s = get_or_create_node(sx, sy)
+                    e = get_or_create_node(ex, ey)
+
                 if s != e:
+                    # Add bike lane edge (or mark existing edge as having bike lane)
                     if G.has_edge(s, e):
                         G[s][e]['has_bike_lane'] = True
                     else:
