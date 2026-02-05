@@ -257,12 +257,7 @@ def main():
     wishing_edges = {}  # lane_id -> [[nodeA, nodeB, length], ...]
     wishing_geoms = {}  # lane_id -> [[lon, lat], ...] for visualization
 
-    # Build a coord_to_node lookup from the base network
-    coord_to_node = {}
-    for nid, (x, y) in nc.items():
-        key = (round(x / NODE_TOLERANCE) * NODE_TOLERANCE, round(y / NODE_TOLERANCE) * NODE_TOLERANCE)
-        coord_to_node[key] = nid
-
+    # Use KDTree to find nearest nodes (consistent with build_network)
     for lid in range(len(wishing_proj)):
         geom = wishing_proj.iloc[lid].geometry
         geom_wgs = wishing_wgs.iloc[lid].geometry
@@ -279,26 +274,15 @@ def main():
         # Store WGS84 coordinates for visualization
         wishing_geoms[lid] = [[round(c[0], 6), round(c[1], 6)] for c in geom_wgs.coords]
 
-        # Get or find nearest node for start and end
+        # Find nearest node for start and end using KDTree (same as build_network)
         sx, sy = coords[0][0], coords[0][1]
         ex, ey = coords[-1][0], coords[-1][1]
 
-        skey = (round(sx / NODE_TOLERANCE) * NODE_TOLERANCE, round(sy / NODE_TOLERANCE) * NODE_TOLERANCE)
-        ekey = (round(ex / NODE_TOLERANCE) * NODE_TOLERANCE, round(ey / NODE_TOLERANCE) * NODE_TOLERANCE)
+        _, s_idx = nt.query([sx, sy])
+        snode = ni[s_idx]
 
-        # Find nearest existing node if not exact match
-        if skey in coord_to_node:
-            snode = coord_to_node[skey]
-        else:
-            # Find nearest node
-            _, idx = nt.query([sx, sy])
-            snode = ni[idx]
-
-        if ekey in coord_to_node:
-            enode = coord_to_node[ekey]
-        else:
-            _, idx = nt.query([ex, ey])
-            enode = ni[idx]
+        _, e_idx = nt.query([ex, ey])
+        enode = ni[e_idx]
 
         if snode != enode:
             wishing_edges[lid] = [[snode, enode, round(geom.length, 1)]]
