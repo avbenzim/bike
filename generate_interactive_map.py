@@ -39,10 +39,13 @@ def load_data():
 
 
 def build_network(roads_proj, bike_lanes_list, tolerance=NODE_TOLERANCE):
+    from shapely.strtree import STRtree
+
     G = nx.Graph()
     coord_to_node = {}
     node_coords = {}
     node_counter = [0]
+    edge_to_geom = {}  # (s, e) -> road geometry for spatial matching
 
     def get_or_create_node(x, y):
         key = (round(x / tolerance) * tolerance, round(y / tolerance) * tolerance)
@@ -54,7 +57,9 @@ def build_network(roads_proj, bike_lanes_list, tolerance=NODE_TOLERANCE):
         node_coords[nid] = (x, y)
         return nid
 
-    # First, add all road segments
+    # First, add all road segments and keep track of geometries
+    road_geoms = []
+    road_edges = []
     for _, row in roads_proj.iterrows():
         geom = row.geometry
         if geom is None or geom.is_empty or geom.geom_type != 'LineString':
@@ -65,35 +70,42 @@ def build_network(roads_proj, bike_lanes_list, tolerance=NODE_TOLERANCE):
             e = get_or_create_node(coords[-1][0], coords[-1][1])
             if s != e:
                 G.add_edge(s, e, length=geom.length, has_bike_lane=False)
+                edge_key = (min(s, e), max(s, e))
+                edge_to_geom[edge_key] = geom
+                road_geoms.append(geom)
+                road_edges.append(edge_key)
 
-    # Build KDTree of road nodes for finding nearest connections
-    road_node_ids = list(node_coords.keys())
-    road_coords_array = np.array([node_coords[n] for n in road_node_ids])
-    road_tree = cKDTree(road_coords_array) if len(road_coords_array) > 0 else None
+    # Build spatial index for road geometries
+    road_tree_spatial = STRtree(road_geoms) if road_geoms else None
 
-    # Add bike lanes - connect to nearest road nodes
-    def add_bike_lane_linestring(line_geom):
-        """Add a single LineString bike lane to the network."""
-        coords = list(line_geom.coords)
-        if len(coords) < 2:
+    # Mark road edges that have bike lanes running along them
+    BUFFER_DIST = 15  # meters - bike lane must be within 15m of road
+
+    def mark_bike_lane_roads(line_geom):
+        """Find and mark all road edges that this bike lane runs along."""
+        if road_tree_spatial is None:
             return
-        sx, sy = coords[0][0], coords[0][1]
-        ex, ey = coords[-1][0], coords[-1][1]
-
-        if road_tree is not None:
-            _, s_idx = road_tree.query([sx, sy])
-            s = road_node_ids[s_idx]
-            _, e_idx = road_tree.query([ex, ey])
-            e = road_node_ids[e_idx]
-        else:
-            s = get_or_create_node(sx, sy)
-            e = get_or_create_node(ex, ey)
-
-        if s != e:
-            if G.has_edge(s, e):
-                G[s][e]['has_bike_lane'] = True
-            else:
-                G.add_edge(s, e, length=line_geom.length, has_bike_lane=True)
+        # Buffer the bike lane to find nearby roads
+        buffered = line_geom.buffer(BUFFER_DIST)
+        # Find candidate road geometries
+        candidate_indices = road_tree_spatial.query(buffered)
+        for idx in candidate_indices:
+            road_geom = road_geoms[idx]
+            # Check if the road segment significantly overlaps with the bike lane
+            # Use intersection length as a measure
+            try:
+                intersection = road_geom.intersection(buffered)
+                if intersection.is_empty:
+                    continue
+                # If most of the road segment is within the buffer, mark it
+                overlap_ratio = intersection.length / road_geom.length if road_geom.length > 0 else 0
+                if overlap_ratio > 0.5:  # At least 50% of road segment covered
+                    edge_key = road_edges[idx]
+                    s, e = edge_key
+                    if G.has_edge(s, e):
+                        G[s][e]['has_bike_lane'] = True
+            except:
+                pass
 
     for bl_gdf in bike_lanes_list:
         if bl_gdf is None or len(bl_gdf) == 0:
@@ -105,10 +117,10 @@ def build_network(roads_proj, bike_lanes_list, tolerance=NODE_TOLERANCE):
                 continue
             # Handle both LineString and MultiLineString
             if geom.geom_type == 'LineString':
-                add_bike_lane_linestring(geom)
+                mark_bike_lane_roads(geom)
             elif geom.geom_type == 'MultiLineString':
                 for line in geom.geoms:
-                    add_bike_lane_linestring(line)
+                    mark_bike_lane_roads(line)
 
     node_ids = list(node_coords.keys())
     coords_array = np.array([node_coords[n] for n in node_ids])
@@ -256,43 +268,82 @@ def main():
         edges_list.append([u, v, round(d['length'], 1), 1 if d.get('has_bike_lane') else 0])
 
     # Pre-compute edges for each wishing list lane (for online path calculation)
+    # Find which road edges each wishing lane covers (same approach as build_network)
     print("Computing wishing lane edges for online path finding...")
+    from shapely.strtree import STRtree
+
     wishing_proj = wishing.to_crs(TARGET_CRS)
     wishing_wgs = wishing.to_crs(WGS84)
-    wishing_edges = {}  # lane_id -> [[nodeA, nodeB, length], ...]
+    wishing_edges = {}  # lane_id -> [[nodeA, nodeB], ...] - road edges this lane covers
     wishing_geoms = {}  # lane_id -> [[lon, lat], ...] for visualization
 
-    # Use KDTree to find nearest nodes (consistent with build_network)
+    # Build road geometry index from roads_proj (need to rebuild for wishing lane matching)
+    road_geoms_list = []
+    road_edges_list = []
+    for _, row in roads_proj.iterrows():
+        geom = row.geometry
+        if geom is None or geom.is_empty or geom.geom_type != 'LineString':
+            continue
+        coords = list(geom.coords)
+        if len(coords) >= 2:
+            # Find the nodes for this road segment
+            sx, sy = coords[0][0], coords[0][1]
+            ex, ey = coords[-1][0], coords[-1][1]
+            _, s_idx = nt.query([sx, sy])
+            _, e_idx = nt.query([ex, ey])
+            s, e = ni[s_idx], ni[e_idx]
+            if s != e:
+                edge_key = (min(s, e), max(s, e))
+                road_geoms_list.append(geom)
+                road_edges_list.append(edge_key)
+
+    road_tree_spatial = STRtree(road_geoms_list) if road_geoms_list else None
+    BUFFER_DIST = 15  # meters
+
+    def get_linestrings(geom):
+        """Extract LineStrings from any geometry type."""
+        if geom.geom_type == 'LineString':
+            return [geom]
+        elif geom.geom_type == 'MultiLineString':
+            return list(geom.geoms)
+        return []
+
     for lid in range(len(wishing_proj)):
         geom = wishing_proj.iloc[lid].geometry
         geom_wgs = wishing_wgs.iloc[lid].geometry
-        if geom is None or geom.is_empty or geom.geom_type != 'LineString':
-            wishing_edges[lid] = []
-            wishing_geoms[lid] = []
-            continue
-        coords = list(geom.coords)
-        if len(coords) < 2:
+        if geom is None or geom.is_empty:
             wishing_edges[lid] = []
             wishing_geoms[lid] = []
             continue
 
         # Store WGS84 coordinates for visualization
-        wishing_geoms[lid] = [[round(c[0], 6), round(c[1], 6)] for c in geom_wgs.coords]
+        lines_wgs = get_linestrings(geom_wgs)
+        all_coords = []
+        for line in lines_wgs:
+            all_coords.extend([[round(c[0], 6), round(c[1], 6)] for c in line.coords])
+        wishing_geoms[lid] = all_coords if all_coords else []
 
-        # Find nearest node for start and end using KDTree (same as build_network)
-        sx, sy = coords[0][0], coords[0][1]
-        ex, ey = coords[-1][0], coords[-1][1]
+        # Find road edges this wishing lane covers
+        covered_edges = set()
+        for line in get_linestrings(geom):
+            if road_tree_spatial is None:
+                continue
+            buffered = line.buffer(BUFFER_DIST)
+            candidate_indices = road_tree_spatial.query(buffered)
+            for idx in candidate_indices:
+                road_geom = road_geoms_list[idx]
+                try:
+                    intersection = road_geom.intersection(buffered)
+                    if intersection.is_empty:
+                        continue
+                    overlap_ratio = intersection.length / road_geom.length if road_geom.length > 0 else 0
+                    if overlap_ratio > 0.5:
+                        covered_edges.add(road_edges_list[idx])
+                except:
+                    pass
 
-        _, s_idx = nt.query([sx, sy])
-        snode = ni[s_idx]
-
-        _, e_idx = nt.query([ex, ey])
-        enode = ni[e_idx]
-
-        if snode != enode:
-            wishing_edges[lid] = [[snode, enode, round(geom.length, 1)]]
-        else:
-            wishing_edges[lid] = []
+        # Store as list of [nodeA, nodeB] pairs
+        wishing_edges[lid] = [[e[0], e[1]] for e in covered_edges]
 
     # Area centroids in WGS84
     areas_wgs = areas.to_crs(WGS84)
@@ -800,30 +851,30 @@ function dijkstra(origIdx,destIdx,k){{
   }}
   if(!oNode||!dNode)return null;
 
-  // Build adjacency with edge info
+  // Build set of edges covered by selected wishing lanes
+  const wishingEdgeSet=new Set();
+  for(const lid of sel){{
+    const edges=WISHING_EDGES[lid]||[];
+    for(const e of edges){{
+      const a=Math.min(e[0],e[1]),b=Math.max(e[0],e[1]);
+      wishingEdgeSet.add(a+'_'+b);
+    }}
+  }}
+
+  // Build adjacency with edge info - mark edges covered by wishing lanes as bike lanes
   const adj={{}};
   for(const e of EDGES){{
-    const len=e[2],bike=!!e[3];
-    const w=bike?len:len*k;
+    const len=e[2];
+    let bike=!!e[3];
     const a=String(e[0]),b=String(e[1]);
+    const edgeKey=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
+    // If this edge is covered by a selected wishing lane, treat as bike lane
+    if(wishingEdgeSet.has(edgeKey))bike=true;
+    const w=bike?len:len*k;
     if(!adj[a])adj[a]=[];
     if(!adj[b])adj[b]=[];
     adj[a].push({{n:b,w:w,len:len,bike:bike}});
     adj[b].push({{n:a,w:w,len:len,bike:bike}});
-  }}
-
-  // Add edges from selected wishing lanes (they are bike lanes)
-  for(const lid of sel){{
-    const edges=WISHING_EDGES[lid]||[];
-    for(const e of edges){{
-      const len=e[2];
-      const w=len; // bike lane, no penalty
-      const a=String(e[0]),b=String(e[1]);
-      if(!adj[a])adj[a]=[];
-      if(!adj[b])adj[b]=[];
-      adj[a].push({{n:b,w:w,len:len,bike:true,laneId:lid}});
-      adj[b].push({{n:a,w:w,len:len,bike:true,laneId:lid}});
-    }}
   }}
 
   const dist={{}},prev={{}},prevEdge={{}},visited=new Set();
@@ -835,11 +886,11 @@ function dijkstra(origIdx,destIdx,k){{
     if(visited.has(cur))continue;
     visited.add(cur);
     if(cur===dNode)break;
-    for(const{{n,w,len,bike,laneId}}of(adj[cur]||[])){{
+    for(const{{n,w,len,bike}}of(adj[cur]||[])){{
       if(visited.has(n))continue;
       const nd=cd+w;
       if(dist[n]===undefined||nd<dist[n]){{
-        dist[n]=nd;prev[n]=cur;prevEdge[n]={{len:len,bike:bike,laneId:laneId}};
+        dist[n]=nd;prev[n]=cur;prevEdge[n]={{len:len,bike:bike}};
         let ins=pq.findIndex(x=>x[0]>nd);
         if(ins<0)ins=pq.length;
         pq.splice(ins,0,[nd,n]);
@@ -855,12 +906,7 @@ function dijkstra(origIdx,destIdx,k){{
   while(prev[c]!==undefined){{
     const p=prev[c];
     const e=prevEdge[c];
-    // If this is a wishing lane segment, use the lane geometry
-    if(e.laneId!==undefined && WISHING_GEOMS[e.laneId]){{
-      segments.unshift({{geom:WISHING_GEOMS[e.laneId],len:e.len,bike:true}});
-    }}else{{
-      segments.unshift({{from:NODES[p],to:NODES[c],len:e.len,bike:e.bike}});
-    }}
+    segments.unshift({{from:NODES[p],to:NODES[c],len:e.len,bike:e.bike}});
     c=p;
   }}
   return {{segments:segments}};
