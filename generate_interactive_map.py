@@ -478,6 +478,7 @@ button:hover{{background:#2980b9}}
     &tau;<sub>ij</sub> = shortest path with weight
     <span class="var">K</span>&middot;d for roads,&nbsp; 1&middot;d for bike lanes
   </span>
+  <a href="METHODOLOGY.md" target="_blank" style="margin-left:20px;padding:5px 12px;background:#27ae60;color:#fff;border-radius:4px;text-decoration:none;font-size:12px">Methodology</a>
 </div>
 <div class="controls">
   <div class="cg">
@@ -584,9 +585,10 @@ button:hover{{background:#2980b9}}
       <div class="note">Compute shortest path between areas using current network (with selected lanes).</div>
       <div class="path-ctl">
         <label>Origin area:</label>
-        <select id="origSel"><option value="">-- select --</option></select>
+        <input type="text" id="origInput" list="areaList" placeholder="Search area..." style="width:100%;padding:6px;margin-bottom:8px;border:1px solid #ddd;border-radius:4px">
         <label>Destination area:</label>
-        <select id="destSel"><option value="">-- select --</option></select>
+        <input type="text" id="destInput" list="areaList" placeholder="Search area..." style="width:100%;padding:6px;margin-bottom:8px;border:1px solid #ddd;border-radius:4px">
+        <datalist id="areaList"></datalist>
         <button onclick="showPath()">Show path</button>
       </div>
       <div id="pathInfo"></div>
@@ -684,13 +686,14 @@ wishLyr=L.geoJSON(WISHING,{{
   }}
 }}).addTo(map);
 
-// Populate area selects (sorted alphabetically)
+// Populate area datalist (sorted alphabetically)
+const areaNameToId={{}};
 (function(){{
   const items=AREA_NAMES.map((n,i)=>({{id:i,name:n}}));
   items.sort((a,b)=>a.name.localeCompare(b.name,'he'));
-  const opts=items.map(it=>'<option value="'+it.id+'">'+it.name+'</option>').join("");
-  document.getElementById("origSel").innerHTML='<option value="">-- select origin --</option>'+opts;
-  document.getElementById("destSel").innerHTML='<option value="">-- select dest --</option>'+opts;
+  items.forEach(it=>areaNameToId[it.name]=it.id);
+  const opts=items.map(it=>'<option value="'+it.name+'">').join("");
+  document.getElementById("areaList").innerHTML=opts;
 }})();
 
 // === KEY HELPER ===
@@ -823,9 +826,11 @@ function showTab(id,btn){{
 
 // === PATH FINDING ===
 function showPath(){{
-  const oi=document.getElementById("origSel").value;
-  const di=document.getElementById("destSel").value;
-  if(oi===""||di===""){{alert("Please select origin and destination areas.");return;}}
+  const origName=document.getElementById("origInput").value;
+  const destName=document.getElementById("destInput").value;
+  const oi=areaNameToId[origName];
+  const di=areaNameToId[destName];
+  if(oi===undefined||di===undefined){{alert("Please select valid origin and destination areas.");return;}}
   if(pathLyrGroup)map.removeLayer(pathLyrGroup);
 
   const k=parseInt(document.getElementById("kSel").value);
@@ -833,7 +838,7 @@ function showPath(){{
 
   setTimeout(()=>{{
     try{{
-    const result=dijkstra(parseInt(oi),parseInt(di),k);
+    const result=dijkstra(oi,di,k);
     if(result&&result.segments.length>0){{
       // Draw segments with different colors
       pathLyrGroup=L.featureGroup();
