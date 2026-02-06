@@ -97,6 +97,13 @@ button:hover{background:#2980b9}
     </div>
   </div>
   <div class="cg">
+    <label>Show:</label>
+    <div class="radio-group">
+      <label><input type="radio" name="showMode" value="accessibility" checked onchange="updateAreaColors()"> Accessibility</label>
+      <label><input type="radio" name="showMode" value="change" onchange="updateAreaColors()"> Change (after compute)</label>
+    </div>
+  </div>
+  <div class="cg">
     <button onclick="clearSel()">Clear selection</button>
   </div>
 </div>
@@ -214,8 +221,29 @@ areasLyr=L.geoJSON(AREAS,{
   style:()=>({fillColor:"#3498db",weight:1,opacity:.5,color:"#2c3e50",fillOpacity:.1}),
   onEachFeature:(f,layer)=>{
     const p=f.properties;
-    const name=AREA_NAMES[p.area_id]||"Area "+p.area_id;
-    layer.bindPopup("<b>"+name+"</b><br>Pop: "+Math.round(p.pop).toLocaleString()+"<br>Emp: "+Math.round(p.emp).toLocaleString());
+    const aid=p.area_id;
+    layer.on('click',function(e){
+      const name=AREA_NAMES[aid]||"Area "+aid;
+      const mode=getAccMode();
+      const key=paramKey();
+      const acc=(mode==="dest")?ACC_DEST[key]:ACC_ORIG[key];
+      const accVal=acc?acc[aid]:0;
+      let html="<b>"+name+"</b><br>"+
+        "Pop: "+Math.round(p.pop).toLocaleString()+"<br>"+
+        "Emp: "+Math.round(p.emp).toLocaleString()+"<br>"+
+        "<hr style='margin:4px 0'>"+
+        "Accessibility: "+accVal.toFixed(1);
+      // Add change if computed
+      if(computedAcc && computedKey===key && computedSel===JSON.stringify([...sel].sort())){
+        const base=(mode==="dest")?ACC_DEST[key]:ACC_ORIG[key];
+        const comp=(mode==="dest")?computedAcc.dest:computedAcc.orig;
+        if(base&&comp&&base[aid]>0){
+          const changePct=100*(comp[aid]-base[aid])/base[aid];
+          html+="<br>Change: <span style='color:"+(changePct>=0?"#27ae60":"#e74c3c")+"'>"+(changePct>=0?"+":"")+changePct.toFixed(2)+"%</span>";
+        }
+      }
+      L.popup().setLatLng(e.latlng).setContent(html).openOn(map);
+    });
   }
 }).addTo(map);
 
@@ -319,9 +347,10 @@ function updateAreaColors(){
   const mode=getAccMode();
   const key=paramKey();
   const deltaLegend=document.getElementById("deltaLegend");
+  const showMode=document.querySelector('input[name="showMode"]:checked')?.value||"accessibility";
 
-  // If we have computed results for current selection, show delta
-  if(computedAcc && computedKey===key && computedSel===JSON.stringify([...sel].sort())){
+  // If showing change and we have computed results for current selection
+  if(showMode==="change" && computedAcc && computedKey===key && computedSel===JSON.stringify([...sel].sort())){
     const base=(mode==="dest")?ACC_DEST[key]:ACC_ORIG[key];
     const comp=(mode==="dest")?computedAcc.dest:computedAcc.orig;
     if(base&&comp){
