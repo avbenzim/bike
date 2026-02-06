@@ -67,7 +67,7 @@ button:hover{background:#2980b9}
     &tau;<sub>ij</sub> = shortest path with weight
     <span class="var">K</span>&middot;d for roads,&nbsp; 1&middot;d for bike lanes
   </span>
-  <a href="METHODOLOGY.md" target="_blank" style="margin-left:20px;padding:5px 12px;background:#27ae60;color:#fff;border-radius:4px;text-decoration:none;font-size:12px">Methodology</a>
+  <button onclick="document.getElementById('methodModal').style.display='flex'" style="margin-left:20px;padding:5px 12px;background:#27ae60;color:#fff;border-radius:4px;border:none;font-size:12px;cursor:pointer">Methodology</button>
 </div>
 <div class="controls">
   <div class="cg">
@@ -729,5 +729,60 @@ buildLaneList();
 updateAreaColors();
 updateComputePanel();
 </script>
+
+<!-- Methodology Modal -->
+<div id="methodModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;justify-content:center;align-items:center">
+  <div style="background:#fff;max-width:800px;max-height:90vh;overflow-y:auto;padding:30px;border-radius:8px;position:relative;margin:20px">
+    <button onclick="document.getElementById('methodModal').style.display='none'" style="position:absolute;top:10px;right:15px;background:none;border:none;font-size:24px;cursor:pointer">&times;</button>
+    <h1 style="color:#2c3e50;margin-top:0">Jerusalem Bike Lane Analysis - Methodology</h1>
+
+    <h2 style="color:#34495e">Overview</h2>
+    <p>This tool ranks proposed ("wishing list") bike lanes by their potential contribution to city-wide accessibility. It uses a gravity-based accessibility model to measure how well people can reach jobs across the city, with bike lanes significantly reducing the effective travel cost.</p>
+
+    <h2 style="color:#34495e">The Accessibility Model</h2>
+    <h3>Core Formula</h3>
+    <p style="background:#f5f5f5;padding:15px;border-radius:4px;font-family:monospace;font-size:1.1em">
+      N = &Sigma;<sub>i</sub> &Sigma;<sub>j</sub> P<sub>i</sub> &times; E<sub>j</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup>
+    </p>
+    <p>Where:</p>
+    <ul>
+      <li><b>P<sub>i</sub></b> = Population of area i (potential trip origins)</li>
+      <li><b>E<sub>j</sub></b> = Employment in area j (potential trip destinations)</li>
+      <li><b>&tau;<sub>ij</sub></b> = Travel cost (shortest path distance) from area i to area j</li>
+      <li><b>&theta;</b> = Distance decay parameter (negative, typically -1 to -2)</li>
+    </ul>
+
+    <h3>Parameters</h3>
+    <h4>K - No-Lane Penalty</h4>
+    <p>Roads without bike lanes are penalized by multiplying their length by K:</p>
+    <ul>
+      <li><code>weight = length</code> for roads WITH bike lanes</li>
+      <li><code>weight = length &times; K</code> for roads WITHOUT bike lanes</li>
+    </ul>
+    <p>Higher K values mean cyclists strongly prefer bike lanes. Typical values: K=10 (mild), K=100 (strong, default), K=500 (very strong).</p>
+
+    <h4>&theta; (Theta) - Distance Decay</h4>
+    <p>Controls how quickly accessibility decreases with distance:</p>
+    <ul>
+      <li>&theta; = -0.5: Slow decay (long trips acceptable)</li>
+      <li>&theta; = -1.0: Moderate decay (default)</li>
+      <li>&theta; = -2.0: Fast decay (only nearby destinations matter)</li>
+    </ul>
+
+    <h2 style="color:#34495e">How Lanes Are Ranked</h2>
+    <ol>
+      <li><b>Baseline Calculation</b>: Compute total N using existing bike lanes</li>
+      <li><b>Per-Lane Evaluation</b>: For each wishing list lane, add it and compute improvement: %&Delta; = 100 &times; (N<sub>new</sub> - N<sub>baseline</sub>) / N<sub>baseline</sub></li>
+      <li><b>Ranking</b>: Sort lanes by improvement (highest first)</li>
+    </ol>
+
+    <h2 style="color:#34495e">Area Accessibility</h2>
+    <p><b>Origin Accessibility</b>: acc<sub>origin</sub>[i] = &Sigma;<sub>j</sub> E<sub>j</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup> (jobs reachable FROM area i)</p>
+    <p><b>Destination Accessibility</b>: acc<sub>dest</sub>[j] = &Sigma;<sub>i</sub> P<sub>i</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup> (people who can reach area j)</p>
+
+    <h2 style="color:#34495e">References</h2>
+    <p>The gravity model approach is based on Hansen's accessibility measure (1959), widely used in transportation planning.</p>
+  </div>
+</div>
 </body>
 </html>
