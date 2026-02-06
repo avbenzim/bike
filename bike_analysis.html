@@ -122,13 +122,13 @@ button:hover{background:#2980b9}
         </div>
       </div>
       <div id="deltaLegend" style="display:none;margin-top:4px">
-        <strong>Change (1 lane selected)</strong>
+        <strong>Change (<span id="deltaSelCount">1</span> lane selected)</strong>
         <div class="legend-item" style="flex-direction:column;align-items:flex-start;gap:2px">
           <div style="display:flex;align-items:center;gap:4px">
-            <div style="width:80px;height:12px;background:linear-gradient(to right,rgb(255,100,100),rgb(255,255,255),rgb(100,100,255));border-radius:2px"></div>
+            <div style="width:80px;height:12px;background:linear-gradient(to right,rgb(240,240,240),rgb(100,100,255));border-radius:2px"></div>
           </div>
           <div style="display:flex;justify-content:space-between;width:80px;font-size:0.75em">
-            <span>-</span><span>0</span><span>+</span>
+            <span>0</span><span id="deltaMax">+</span>
           </div>
         </div>
       </div>
@@ -140,18 +140,18 @@ button:hover{background:#2980b9}
   </div>
   <div class="sidebar">
     <div class="tabs">
-      <button class="act" onclick="showTab('lanes',this)">Lanes</button>
-      <button onclick="showTab('paths',this)">Paths</button>
-      <button onclick="showTab('compute',this)">Compute</button>
+      <button class="act" onclick="showTab('lanes',this)">Select Lanes</button>
+      <button onclick="showTab('paths',this)">Find Path</button>
+      <button onclick="showTab('compute',this)">Accessibility</button>
     </div>
     <div id="lanes" class="tc act">
-      <h3>Wishing List Lanes</h3>
-      <div class="note">Click a lane to select it. Selected lanes are included in path calculations. Areas colored by accessibility (red=low, green=high).</div>
+      <h3>Select Wishing Lanes</h3>
+      <div class="note">Click lanes to select them for the network. Selected lanes affect path finding and accessibility calculations.</div>
       <div id="laneList"></div>
     </div>
     <div id="compute" class="tc">
       <h3>Compute Accessibility</h3>
-      <div class="note">Calculate exact accessibility for current network (with selected lanes). This takes 30-60 seconds.</div>
+      <div class="note">Calculate accessibility for current network with selected lanes. This computes all area-to-area distances (30-60 sec).</div>
       <div class="path-ctl">
         <p><b>Selected lanes:</b> <span id="selCount">0</span></p>
         <p><b>Parameters:</b> K=<span id="compK">100</span>, &theta;=<span id="compT">-1.0</span></p>
@@ -161,7 +161,8 @@ button:hover{background:#2980b9}
       <div id="computeResults" style="margin-top:10px"></div>
     </div>
     <div id="paths" class="tc">
-      <h3>Shortest Path</h3>
+      <h3>Find Shortest Path</h3>
+      <div class="note">Compute shortest path between areas using current network (with selected lanes).</div>
       <div class="path-ctl">
         <label>Origin area:</label>
         <select id="origSel"><option value="">-- select --</option></select>
@@ -314,14 +315,20 @@ function updateAreaColors(){
     const comp=(mode==="dest")?computedAcc.dest:computedAcc.orig;
     if(base&&comp){
       const delta=comp.map((v,i)=>v-base[i]);
-      const maxAbs=Math.max(...delta.map(d=>Math.abs(d)),0.01);
+      const maxVal=Math.max(...delta,0.01);
+      // Update legend with magnitude
+      const deltaMaxEl=document.getElementById("deltaMax");
+      const deltaSelEl=document.getElementById("deltaSelCount");
+      if(deltaMaxEl)deltaMaxEl.textContent="+"+maxVal.toFixed(1);
+      if(deltaSelEl)deltaSelEl.textContent=sel.size;
       areasLyr.eachLayer(layer=>{
         const aid=layer.feature.properties.area_id;
-        const v=delta[aid]||0;
-        const n=v/maxAbs;
-        let r,g,b;
-        if(n>=0){r=Math.round(255*(1-n)+100*n);g=Math.round(255*(1-n)+100*n);b=255;}
-        else{const a=-n;r=255;g=Math.round(255*(1-a)+100*a);b=Math.round(255*(1-a)+100*a);}
+        const v=Math.max(0,delta[aid]||0);
+        const n=v/maxVal;
+        // Color from gray (0) to blue (max positive)
+        const r=Math.round(240*(1-n)+100*n);
+        const g=Math.round(240*(1-n)+100*n);
+        const b=Math.round(240*(1-n)+255*n);
         layer.setStyle({fillColor:"rgb("+r+","+g+","+b+")",fillOpacity:.5,weight:1,opacity:.5,color:"#2c3e50"});
       });
       if(deltaLegend)deltaLegend.style.display="block";
