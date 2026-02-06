@@ -125,7 +125,7 @@ def build_network(roads_proj, bike_lanes_list, tolerance=NODE_TOLERANCE):
     node_ids = list(node_coords.keys())
     coords_array = np.array([node_coords[n] for n in node_ids])
     node_tree = cKDTree(coords_array) if len(coords_array) > 0 else None
-    return G, node_coords, node_tree, node_ids
+    return G, node_coords, node_tree, node_ids, edge_to_geom
 
 
 def compute_area_accessibility(G, node_coords, node_tree, node_ids, areas_proj, theta, k):
@@ -242,7 +242,7 @@ def main():
 
     # Compute accessibility
     print("Building network and computing accessibility...")
-    G_base, nc, nt, ni = build_network(roads_proj, [completed, construction])
+    G_base, nc, nt, ni, edge_geoms = build_network(roads_proj, [completed, construction])
     print(f"  Network: {G_base.number_of_nodes()} nodes, {G_base.number_of_edges()} edges")
 
     acc_orig_data = {}
@@ -266,6 +266,17 @@ def main():
     edges_list = []
     for u, v, d in G_base.edges(data=True):
         edges_list.append([u, v, round(d['length'], 1), 1 if d.get('has_bike_lane') else 0])
+
+    # Export edge geometries for accurate path drawing
+    edge_geoms_wgs = {}
+    for (s, e), geom in edge_geoms.items():
+        # Transform geometry coords to WGS84
+        coords_wgs = []
+        for x, y in geom.coords:
+            lon, lat = transformer.transform(x, y)
+            coords_wgs.append([round(lon, 6), round(lat, 6)])
+        edge_key = f"{min(s,e)}_{max(s,e)}"
+        edge_geoms_wgs[edge_key] = coords_wgs
 
     # Pre-compute edges for each wishing list lane (for online path calculation)
     # Find which road edges each wishing lane covers (same approach as build_network)
@@ -377,6 +388,7 @@ def main():
         area_center_nodes=area_center_nodes,
         nodes_wgs=nodes_wgs,
         edges_list=edges_list,
+        edge_geoms_wgs=edge_geoms_wgs,
         wishing_edges=wishing_edges,
         wishing_geoms=wishing_geoms,
         centroids_wgs=centroids_wgs,
@@ -391,7 +403,7 @@ def main():
 def generate_html(*, areas_geojson, completed_geojson, construction_geojson,
                   wishing_geojson, lane_names, area_names, sens_data,
                   acc_orig_data, acc_dest_data, area_pop, area_emp, area_center_nodes,
-                  nodes_wgs, edges_list, wishing_edges, wishing_geoms, centroids_wgs):
+                  nodes_wgs, edges_list, edge_geoms_wgs, wishing_edges, wishing_geoms, centroids_wgs):
 
     # Serialize data compactly
     def js_json(obj):
@@ -590,6 +602,7 @@ const AREA_EMP={js_json(area_emp)};
 const AREA_NODES={js_json(area_center_nodes)};
 const NODES={js_json(nodes_wgs)};
 const EDGES={js_json(edges_list)};
+const EDGE_GEOMS={js_json(edge_geoms_wgs)};
 const WISHING_EDGES={js_json(wishing_edges)};
 const WISHING_GEOMS={js_json(wishing_geoms)};
 const CENTROIDS={js_json(centroids_wgs)};
@@ -880,8 +893,8 @@ function dijkstra(origIdx,destIdx,k){{
     const w=bike?len:len*k;
     if(!adj[a])adj[a]=[];
     if(!adj[b])adj[b]=[];
-    adj[a].push({{n:b,w:w,len:len,bike:bike}});
-    adj[b].push({{n:a,w:w,len:len,bike:bike}});
+    adj[a].push({{n:b,w:w,len:len,bike:bike,eKey:edgeKey}});
+    adj[b].push({{n:a,w:w,len:len,bike:bike,eKey:edgeKey}});
   }}
 
   const dist={{}},prev={{}},prevEdge={{}},visited=new Set();
@@ -893,11 +906,11 @@ function dijkstra(origIdx,destIdx,k){{
     if(visited.has(cur))continue;
     visited.add(cur);
     if(cur===dNode)break;
-    for(const{{n,w,len,bike}}of(adj[cur]||[])){{
+    for(const{{n,w,len,bike,eKey}}of(adj[cur]||[])){{
       if(visited.has(n))continue;
       const nd=cd+w;
       if(dist[n]===undefined||nd<dist[n]){{
-        dist[n]=nd;prev[n]=cur;prevEdge[n]={{len:len,bike:bike}};
+        dist[n]=nd;prev[n]=cur;prevEdge[n]={{len:len,bike:bike,eKey:eKey}};
         let ins=pq.findIndex(x=>x[0]>nd);
         if(ins<0)ins=pq.length;
         pq.splice(ins,0,[nd,n]);
@@ -913,7 +926,19 @@ function dijkstra(origIdx,destIdx,k){{
   while(prev[c]!==undefined){{
     const p=prev[c];
     const e=prevEdge[c];
-    segments.unshift({{from:NODES[p],to:NODES[c],len:e.len,bike:e.bike}});
+    // Use edge geometry if available, otherwise fall back to node coords
+    const geom=EDGE_GEOMS[e.eKey];
+    if(geom&&geom.length>=2){{
+      // Check if we need to reverse the geometry (based on direction of travel)
+      const fromNode=NODES[p],toNode=NODES[c];
+      const g0=geom[0],gN=geom[geom.length-1];
+      const d0=Math.abs(g0[0]-fromNode[0])+Math.abs(g0[1]-fromNode[1]);
+      const dN=Math.abs(gN[0]-fromNode[0])+Math.abs(gN[1]-fromNode[1]);
+      const coords=(d0<=dN)?geom:geom.slice().reverse();
+      segments.unshift({{geom:coords,len:e.len,bike:e.bike}});
+    }}else{{
+      segments.unshift({{from:NODES[p],to:NODES[c],len:e.len,bike:e.bike}});
+    }}
     c=p;
   }}
   return {{segments:segments}};
@@ -953,15 +978,22 @@ function computeAccessibility(){{
       adj[a].push({{n:b,w:w,len:len}});
       adj[b].push({{n:a,w:w,len:len}});
     }}
+    // Build edge length lookup
+    const edgeLenLookup={{}};
+    for(const e of EDGES){{
+      const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
+      edgeLenLookup[key]=e[2];
+    }}
+    // Mark edges covered by selected wishing lanes as bike lanes
     for(const lid of sel){{
       const edges=WISHING_EDGES[lid]||[];
       for(const e of edges){{
-        const len=e[2],w=len;
         const a=String(e[0]),b=String(e[1]);
-        if(!adj[a])adj[a]=[];
-        if(!adj[b])adj[b]=[];
-        adj[a].push({{n:b,w:w,len:len}});
-        adj[b].push({{n:a,w:w,len:len}});
+        const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
+        const len=edgeLenLookup[key]||0;
+        // Update adjacency - these edges should have no K penalty
+        if(adj[a])adj[a]=adj[a].map(x=>x.n===b?{{...x,w:len}}:x);
+        if(adj[b])adj[b]=adj[b].map(x=>x.n===a?{{...x,w:len}}:x);
       }}
     }}
 
