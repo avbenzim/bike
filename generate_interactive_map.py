@@ -558,6 +558,7 @@ button:hover{{background:#2980b9}}
     <div id="lanes" class="tc act">
       <h3>Select Wishing Lanes</h3>
       <div class="note">Click lanes to select them for the network. Selected lanes affect path finding and accessibility calculations.</div>
+      <input type="text" id="laneSearch" placeholder="Search lanes..." style="width:100%;padding:8px;margin:8px 0;border:1px solid #ddd;border-radius:4px;box-sizing:border-box" oninput="filterLanes()">
       <div id="laneList"></div>
     </div>
     <div id="compute" class="tc">
@@ -655,9 +656,11 @@ wishLyr=L.geoJSON(WISHING,{{
   }}
 }}).addTo(map);
 
-// Populate area selects
+// Populate area selects (sorted alphabetically)
 (function(){{
-  const opts=AREA_NAMES.map((n,i)=>'<option value="'+i+'">'+n+'</option>').join("");
+  const items=AREA_NAMES.map((n,i)=>({{id:i,name:n}}));
+  items.sort((a,b)=>a.name.localeCompare(b.name,'he'));
+  const opts=items.map(it=>'<option value="'+it.id+'">'+it.name+'</option>').join("");
   document.getElementById("origSel").innerHTML='<option value="">-- select origin --</option>'+opts;
   document.getElementById("destSel").innerHTML='<option value="">-- select dest --</option>'+opts;
 }})();
@@ -689,14 +692,21 @@ function refresh(){{
 
 function buildLaneList(){{
   const imps=SENS[paramKey()]||[];
-  // Build sorted list
+  const search=(document.getElementById("laneSearch").value||"").toLowerCase();
+  // Build alphabetically sorted list
   const items=LANE_NAMES.map((name,i)=>({{id:i,name:name,imp:imps[i]||0}}));
-  items.sort((a,b)=>b.imp-a.imp);
+  items.sort((a,b)=>a.name.localeCompare(b.name,'he'));
+  // Filter by search
+  const filtered=search?items.filter(it=>it.name.toLowerCase().includes(search)):items;
   const container=document.getElementById("laneList");
-  container.innerHTML=items.map(it=>{{
+  container.innerHTML=filtered.map(it=>{{
     const cls=sel.has(it.id)?"lane sel":"lane";
     return '<div class="'+cls+'" onclick="toggleLane('+it.id+')"><span>'+it.name+'</span><span class="pct">+'+it.imp.toFixed(2)+'%</span></div>';
   }}).join("");
+}}
+
+function filterLanes(){{
+  buildLaneList();
 }}
 
 function toggleLane(id){{
@@ -726,17 +736,18 @@ function updateAreaColors(){{
     const base=(mode==="dest")?ACC_DEST[key]:ACC_ORIG[key];
     const comp=(mode==="dest")?computedAcc.dest:computedAcc.orig;
     if(base&&comp){{
-      const delta=comp.map((v,i)=>v-base[i]);
-      const maxVal=Math.max(...delta,0.01);
-      // Update legend with magnitude
+      // Calculate percentage change for each area
+      const deltaPct=comp.map((v,i)=>base[i]>0?100*(v-base[i])/base[i]:0);
+      const maxPct=Math.max(...deltaPct,0.01);
+      // Update legend with percentage
       const deltaMaxEl=document.getElementById("deltaMax");
       const deltaSelEl=document.getElementById("deltaSelCount");
-      if(deltaMaxEl)deltaMaxEl.textContent="+"+maxVal.toFixed(1);
+      if(deltaMaxEl)deltaMaxEl.textContent="+"+maxPct.toFixed(1)+"%";
       if(deltaSelEl)deltaSelEl.textContent=sel.size;
       areasLyr.eachLayer(layer=>{{
         const aid=layer.feature.properties.area_id;
-        const v=Math.max(0,delta[aid]||0);
-        const n=v/maxVal;
+        const v=Math.max(0,deltaPct[aid]||0);
+        const n=v/maxPct;
         // Color from gray (0) to blue (max positive)
         const r=Math.round(240*(1-n)+100*n);
         const g=Math.round(240*(1-n)+100*n);
