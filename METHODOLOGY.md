@@ -189,7 +189,8 @@ This measures how many people can reach area j (e.g., how accessible is a workpl
 
 ## References
 
-The gravity model approach is based on Hansen's accessibility measure (1959), widely used in transportation planning to evaluate infrastructure investments.
+- Donaldson, D., & Hornbeck, R. (2016). Railroads and American economic growth: A "market access" approach. *The Quarterly Journal of Economics*, 131(2), 799-858.
+- Tsivanidis, N. (2024). Evaluating the Impact of Urban Transit Infrastructure: Evidence from Bogotá's TransMilenio. *American Economic Review*, 116(2), 418-463.
 
 ## Close
 
