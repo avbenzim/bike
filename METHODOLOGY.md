@@ -71,7 +71,7 @@ A lane's improvement reflects how much it:
 | **Employment (emp_2025)** | Jerusalem Transportation Master Plan Team | 2025 projections |
 | **Completed Bike Lanes** | Jerusalem Transportation Master Plan Team | Current |
 | **Under Construction Bike Lanes** | Jerusalem Transportation Master Plan Team | Current |
-| **Wishing List Bike Lanes** | Jerusalem Transportation Master Plan Team | Proposed |
+| **Wishing List Bike Lanes** | The author | Proposed |
 | **Road Network** | OpenStreetMap via ISR.parquet | Current |
 
 - **Areas**: Statistical areas with population and employment projections for 2025 (Shapefile: `jer_areas.shp`)
