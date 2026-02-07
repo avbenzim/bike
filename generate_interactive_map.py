@@ -1308,11 +1308,6 @@ setTimeout(()=>{{
       <li><b>&tau;<sub>ij</sub></b> = Travel cost (shortest path distance in km) from area i to area j</li>
       <li><b>&theta;</b> = Distance decay parameter (negative, typically -1 to -2)</li>
     </ul>
-    <p style="background:#f5f5f5;padding:10px;border-radius:4px;font-size:0.9em">
-      <b>References:</b><br>
-      Donaldson, D., &amp; Hornbeck, R. (2016). Railroads and American economic growth: A "market access" approach. <i>The Quarterly Journal of Economics</i>, 131(2), 799-858.<br>
-      Tsivanidis, N. (2024). Evaluating the Impact of Urban Transit Infrastructure: Evidence from Bogotá's TransMilenio. <i>American Economic Review</i>, 116(2), 418-463.
-    </p>
 
     <h3>Parameters</h3>
     <h4>K - No-Lane Penalty</h4>
@@ -1330,6 +1325,11 @@ setTimeout(()=>{{
       <li>&theta; = -1.0: Moderate decay (default)</li>
       <li>&theta; = -2.0: Fast decay (only nearby destinations matter)</li>
     </ul>
+    <p style="background:#f5f5f5;padding:10px;border-radius:4px;font-size:0.9em">
+      <b>References:</b><br>
+      Donaldson, D., &amp; Hornbeck, R. (2016). Railroads and American economic growth: A "market access" approach. <i>The Quarterly Journal of Economics</i>, 131(2), 799-858.<br>
+      Tsivanidis, N. (2024). Evaluating the Impact of Urban Transit Infrastructure: Evidence from Bogotá's TransMilenio. <i>American Economic Review</i>, 116(2), 418-463.
+    </p>
 
     <h2 style="color:#34495e">Data Sources</h2>
     <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:0.9em">
