@@ -206,5 +206,3 @@ The rankings should be considered alongside other factors not modeled here, incl
 - Equity and access for underserved neighborhoods
 - Integration with public transit
 - Political and community priorities
-
-The tool is designed to inform decision-making, not replace professional judgment.
