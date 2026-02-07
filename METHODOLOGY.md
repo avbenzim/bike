@@ -63,9 +63,20 @@ A lane's improvement reflects how much it:
 ## Network Construction
 
 ### Data Sources
-- **Roads**: Jerusalem road network (KML)
-- **Areas**: Statistical areas with population and employment (Shapefile)
-- **Bike Lanes**: Three KML files for completed, under construction, and wishing list lanes
+
+| Data | Source | Year |
+|------|--------|------|
+| **Statistical Areas** | Jerusalem Transportation Master Plan Team | 2025 projections |
+| **Population (pop_2025)** | Jerusalem Transportation Master Plan Team | 2025 projections |
+| **Employment (emp_2025)** | Jerusalem Transportation Master Plan Team | 2025 projections |
+| **Completed Bike Lanes** | Jerusalem Transportation Master Plan Team | Current |
+| **Under Construction Bike Lanes** | Jerusalem Transportation Master Plan Team | Current |
+| **Wishing List Bike Lanes** | Jerusalem Transportation Master Plan Team | Proposed |
+| **Road Network** | OpenStreetMap via ISR.parquet | Current |
+
+- **Areas**: Statistical areas with population and employment projections for 2025 (Shapefile: `jer_areas.shp`)
+- **Bike Lanes**: Three KML files for completed, under construction, and wishing list lanes (provided by Transportation Master Plan Team)
+- **Roads**: Jerusalem road network extracted from OpenStreetMap (`jerusalem_roads.kml`), filtered to Jerusalem area with 1km buffer
 
 ### Graph Building
 1. Roads are converted to a graph with nodes at endpoints
@@ -76,6 +87,40 @@ A lane's improvement reflects how much it:
 ### Coordinate Systems
 - Internal calculations use Israel TM (EPSG:2039) for accurate distances
 - Display uses WGS84 (EPSG:4326) for web mapping
+
+### Network Connectivity
+
+The tool ensures the network is fully connected through several mechanisms:
+
+#### Node Merging
+- **Tolerance**: Nodes within 15 meters of each other are merged into a single node
+- **Purpose**: Handles imprecise GPS coordinates and ensures lane endpoints connect properly to roads
+
+#### Intersection Detection
+- Bike lanes are overlaid on the road network
+- Intersection points between bike lanes and roads are detected automatically
+- New nodes are created at every intersection point
+- Edges are split at intersection points to enable routing through the network
+
+#### Gap Connection Algorithm
+For bike lanes with gaps between segments:
+
+1. **Endpoint Extraction**: Extract start and end points from all lane geometries
+2. **KD-Tree Indexing**: Build spatial index for efficient nearest-neighbor queries
+3. **Dangling Endpoint Detection**: Identify endpoints not touching other lanes (within 1m tolerance)
+4. **Gap Bridging**: Connect dangling endpoints to nearest neighbor within 50m tolerance
+   - Preference given to connecting two dangling endpoints (both isolated)
+   - Falls back to connecting to any nearby endpoint
+
+#### Component Connection
+For disconnected network components:
+
+1. **Component Detection**: Use NetworkX to find all connected components
+2. **Minimum Spanning Tree Approach**: Connect isolated components by adding edges between closest nodes
+3. **Area Adjacency**: Areas within 800m are connected to ensure full coverage
+4. **Result**: Ensures every area can reach every other area through some path
+
+This connectivity fixing is essential because raw GIS data often has small gaps, coordinate mismatches, or isolated segments that would otherwise break shortest path calculations.
 
 ## Area Accessibility Metrics
 
@@ -145,3 +190,21 @@ This measures how many people can reach area j (e.g., how accessible is a workpl
 ## References
 
 The gravity model approach is based on Hansen's accessibility measure (1959), widely used in transportation planning to evaluate infrastructure investments.
+
+## Close
+
+This methodology provides a systematic, data-driven approach to prioritizing bike lane investments. By combining:
+
+- **Gravity model physics**: Captures the fundamental relationship between accessibility, distance, and demand
+- **Network analysis**: Ensures realistic routing through the actual road/bike lane network
+- **Sensitivity analysis**: Tests robustness across different cyclist behavior assumptions (K) and trip distance preferences (θ)
+- **Interactive visualization**: Enables planners to explore scenarios and understand trade-offs
+
+The rankings should be considered alongside other factors not modeled here, including:
+- Construction costs and feasibility
+- Safety considerations and accident data
+- Equity and access for underserved neighborhoods
+- Integration with public transit
+- Political and community priorities
+
+The tool is designed to inform decision-making, not replace professional judgment.
