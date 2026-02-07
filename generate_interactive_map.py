@@ -20,8 +20,9 @@ TARGET_CRS = 2039
 WGS84 = 4326
 NODE_TOLERANCE = 15
 
-K_VALUES = [10, 50, 100, 200, 500]
-THETA_VALUES = [-0.5, -1.0, -1.5, -2.0, -3.0]
+# Default values for dropdowns (more options, user can also enter custom)
+K_VALUES = [2, 5, 10, 20, 50, 100, 200, 500, 1000]
+THETA_VALUES = [-0.25, -0.5, -0.75, -1.0, -1.25, -1.5, -2.0, -2.5, -3.0]
 
 
 def load_data():
@@ -220,40 +221,10 @@ def main():
     wishing_geojson = geojson_from_gdf(wishing[['geometry', 'Name', 'lane_id']], ['Name', 'lane_id'])
     lane_names = [wishing.iloc[i]['Name'] for i in range(len(wishing))]
 
-    # Load sensitivity results
-    print("Loading sensitivity data...")
-    sens_df = pd.read_csv(script_dir / 'sensitivity_analysis.csv')
-
-    # Build sensitivity dict indexed by lane_id (integer)
-    # Map lane name -> lane_id
-    name_to_id = {name: i for i, name in enumerate(lane_names)}
-
-    sens_data = {}  # key: "K_theta" -> list of improvement_pct ordered by lane_id
-    for K in K_VALUES:
-        for theta in THETA_VALUES:
-            key = f"{K}_{theta}"
-            improvements = [0.0] * len(lane_names)
-            sub = sens_df[(sens_df['K'] == K) & (sens_df['theta'] == theta)]
-            for _, row in sub.iterrows():
-                lid = name_to_id.get(row['lane'])
-                if lid is not None:
-                    improvements[lid] = round(row['improvement_pct'], 4)
-            sens_data[key] = improvements
-
-    # Compute accessibility
-    print("Building network and computing accessibility...")
+    # Build network (no pre-computation of accessibility - all done online)
+    print("Building network...")
     G_base, nc, nt, ni, edge_geoms = build_network(roads_proj, [completed, construction])
     print(f"  Network: {G_base.number_of_nodes()} nodes, {G_base.number_of_edges()} edges")
-
-    acc_orig_data = {}
-    acc_dest_data = {}
-    for K in K_VALUES:
-        for theta in THETA_VALUES:
-            key = f"{K}_{theta}"
-            print(f"  Accessibility K={K}, theta={theta}...")
-            acc_orig, acc_dest = compute_area_accessibility(G_base, nc, nt, ni, areas_proj, theta, K)
-            acc_orig_data[key] = [round(float(v), 2) for v in acc_orig]
-            acc_dest_data[key] = [round(float(v), 2) for v in acc_dest]
 
     # Build network data for path finding (WGS84 coords)
     print("Exporting network for path finding...")
@@ -380,9 +351,6 @@ def main():
         wishing_geojson=wishing_geojson,
         lane_names=lane_names,
         area_names=area_names,
-        sens_data=sens_data,
-        acc_orig_data=acc_orig_data,
-        acc_dest_data=acc_dest_data,
         area_pop=area_pop,
         area_emp=area_emp,
         area_center_nodes=area_center_nodes,
@@ -392,6 +360,8 @@ def main():
         wishing_edges=wishing_edges,
         wishing_geoms=wishing_geoms,
         centroids_wgs=centroids_wgs,
+        k_values=K_VALUES,
+        theta_values=THETA_VALUES,
     )
 
     out_path = script_dir / 'bike_analysis.html'
@@ -401,13 +371,28 @@ def main():
 
 
 def generate_html(*, areas_geojson, completed_geojson, construction_geojson,
-                  wishing_geojson, lane_names, area_names, sens_data,
-                  acc_orig_data, acc_dest_data, area_pop, area_emp, area_center_nodes,
-                  nodes_wgs, edges_list, edge_geoms_wgs, wishing_edges, wishing_geoms, centroids_wgs):
+                  wishing_geojson, lane_names, area_names,
+                  area_pop, area_emp, area_center_nodes,
+                  nodes_wgs, edges_list, edge_geoms_wgs, wishing_edges, wishing_geoms, centroids_wgs,
+                  k_values, theta_values):
 
     # Serialize data compactly
     def js_json(obj):
         return json.dumps(obj, ensure_ascii=False, separators=(',', ':'))
+
+    # Generate K options (default 100)
+    k_options = '\n'.join([
+        f'      <option value="{k}"{" selected" if k == 100 else ""}>{k}</option>'
+        for k in k_values
+    ])
+    k_options += '\n      <option value="custom">Custom...</option>'
+
+    # Generate theta options (default -1.0)
+    theta_options = '\n'.join([
+        f'      <option value="{t}"{" selected" if t == -1.0 else ""}>{t}</option>'
+        for t in theta_values
+    ])
+    theta_options += '\n      <option value="custom">Custom...</option>'
 
     return f'''<!DOCTYPE html>
 <html lang="en">
@@ -483,40 +468,28 @@ button:hover{{background:#2980b9}}
 <div class="controls">
   <div class="cg">
     <label>K (no-lane penalty):</label>
-    <select id="kSel">
-      <option value="10">10</option>
-      <option value="50">50</option>
-      <option value="100" selected>100</option>
-      <option value="200">200</option>
-      <option value="500">500</option>
+    <select id="kSel" onchange="handleKChange()">
+{k_options}
     </select>
+    <input type="number" id="kCustom" placeholder="Enter K" min="1" max="10000" style="width:80px;display:none" onchange="applyCustomK()">
   </div>
   <div class="cg">
     <label>&theta; (distance decay):</label>
-    <select id="tSel">
-      <option value="-0.5">-0.5</option>
-      <option value="-1.0" selected>-1.0</option>
-      <option value="-1.5">-1.5</option>
-      <option value="-2.0">-2.0</option>
-      <option value="-3.0">-3.0</option>
+    <select id="tSel" onchange="handleThetaChange()">
+{theta_options}
     </select>
+    <input type="number" id="tCustom" placeholder="Enter &theta;" step="0.1" min="-10" max="0" style="width:80px;display:none" onchange="applyCustomTheta()">
   </div>
   <div class="cg">
     <label>Color areas by:</label>
     <div class="radio-group">
-      <label><input type="radio" name="accMode" value="origin" checked onchange="refresh()"> Origin (where people live)</label>
-      <label><input type="radio" name="accMode" value="dest" onchange="refresh()"> Destination (where jobs are)</label>
+      <label><input type="radio" name="accMode" value="origin" checked onchange="refresh()"> Origin</label>
+      <label><input type="radio" name="accMode" value="dest" onchange="refresh()"> Destination</label>
     </div>
   </div>
   <div class="cg">
-    <label>Show:</label>
-    <div class="radio-group">
-      <label><input type="radio" name="showMode" value="accessibility" checked onchange="updateAreaColors()"> Accessibility</label>
-      <label><input type="radio" name="showMode" value="change" onchange="updateAreaColors()"> Change (after compute)</label>
-    </div>
-  </div>
-  <div class="cg">
-    <button onclick="clearSel()">Clear selection</button>
+    <button onclick="selectAllLanes()">Select All Lanes</button>
+    <button onclick="clearSel()">Clear Selection</button>
   </div>
 </div>
 <div class="main">
@@ -593,9 +566,6 @@ const CONSTRUCTION={js_json(construction_geojson)};
 const WISHING={js_json(wishing_geojson)};
 const LANE_NAMES={js_json(lane_names)};
 const AREA_NAMES={js_json(area_names)};
-const SENS={js_json(sens_data)};
-const ACC_ORIG={js_json(acc_orig_data)};
-const ACC_DEST={js_json(acc_dest_data)};
 const AREA_POP={js_json(area_pop)};
 const AREA_EMP={js_json(area_emp)};
 const AREA_NODES={js_json(area_center_nodes)};
@@ -606,9 +576,72 @@ const WISHING_EDGES={js_json(wishing_edges)};
 const WISHING_GEOMS={js_json(wishing_geoms)};
 const CENTROIDS={js_json(centroids_wgs)};
 
+// All computation is done online - no pre-computed accessibility data
+
 // === STATE ===
 const sel=new Set();
 let wishLyr,areasLyr,pathLyrGroup;
+let currentK=100;
+let currentTheta=-1.0;
+let computedAcc=null; // Stores computed accessibility results
+let computedK=null;
+let computedTheta=null;
+let computedSel=null;
+
+// === CUSTOM PARAMETER HANDLERS ===
+function getK(){{return currentK;}}
+function getTheta(){{return currentTheta;}}
+
+function handleKChange(){{
+  const sel=document.getElementById("kSel");
+  const custom=document.getElementById("kCustom");
+  if(sel.value==="custom"){{
+    custom.style.display="inline";
+    custom.focus();
+  }}else{{
+    custom.style.display="none";
+    currentK=parseFloat(sel.value);
+    refresh();
+    updateComputePanel();
+  }}
+}}
+
+function applyCustomK(){{
+  const val=parseFloat(document.getElementById("kCustom").value);
+  if(!isNaN(val)&&val>0){{
+    currentK=val;
+    refresh();
+    updateComputePanel();
+  }}
+}}
+
+function handleThetaChange(){{
+  const sel=document.getElementById("tSel");
+  const custom=document.getElementById("tCustom");
+  if(sel.value==="custom"){{
+    custom.style.display="inline";
+    custom.focus();
+  }}else{{
+    custom.style.display="none";
+    currentTheta=parseFloat(sel.value);
+    refresh();
+    updateComputePanel();
+  }}
+}}
+
+function applyCustomTheta(){{
+  const val=parseFloat(document.getElementById("tCustom").value);
+  if(!isNaN(val)&&val<0){{
+    currentTheta=val;
+    refresh();
+    updateComputePanel();
+  }}
+}}
+
+function selectAllLanes(){{
+  for(let i=0;i<LANE_NAMES.length;i++)sel.add(i);
+  refresh();
+}}
 
 // === MAP INIT ===
 const map=L.map("map").setView([31.78,35.22],12);
@@ -627,22 +660,17 @@ areasLyr=L.geoJSON(AREAS,{{
     layer.on('click',function(e){{
       const name=AREA_NAMES[aid]||"Area "+aid;
       const mode=getAccMode();
-      const key=paramKey();
-      const acc=(mode==="dest")?ACC_DEST[key]:ACC_ORIG[key];
-      const accVal=acc?acc[aid]:0;
       let html="<b>"+name+"</b><br>"+
         "Pop: "+Math.round(p.pop).toLocaleString()+"<br>"+
-        "Emp: "+Math.round(p.emp).toLocaleString()+"<br>"+
-        "<hr style='margin:4px 0'>"+
-        "Accessibility: "+accVal.toFixed(1);
-      // Add change if computed
-      if(computedAcc && computedKey===key && computedSel===JSON.stringify([...sel].sort())){{
-        const base=(mode==="dest")?ACC_DEST[key]:ACC_ORIG[key];
-        const comp=(mode==="dest")?computedAcc.dest:computedAcc.orig;
-        if(base&&comp&&base[aid]>0){{
-          const changePct=100*(comp[aid]-base[aid])/base[aid];
-          html+="<br>Change: <span style='color:"+(changePct>=0?"#27ae60":"#e74c3c")+"'>"+(changePct>=0?"+":"")+changePct.toFixed(2)+"%</span>";
+        "Emp: "+Math.round(p.emp).toLocaleString();
+      // Add accessibility if computed
+      if(computedAcc && computedK===currentK && computedTheta===currentTheta){{
+        const acc=(mode==="dest")?computedAcc.dest:computedAcc.orig;
+        if(acc){{
+          html+="<hr style='margin:4px 0'>Accessibility: "+acc[aid].toFixed(1);
         }}
+      }}else{{
+        html+="<hr style='margin:4px 0'><i>Click 'Compute Accessibility' to see values</i>";
       }}
       L.popup().setLatLng(e.latlng).setContent(html).openOn(map);
     }});
@@ -685,11 +713,6 @@ const areaNameToId={{}};
   document.getElementById("areaList").innerHTML=opts;
 }})();
 
-// === KEY HELPER ===
-function paramKey(){{
-  return document.getElementById("kSel").value+"_"+document.getElementById("tSel").value;
-}}
-
 // === REFRESH ===
 function refresh(){{
   // Update wishing layer style
@@ -699,11 +722,8 @@ function refresh(){{
   }});
   // Update lane list
   buildLaneList();
-  // Update total improvement
-  const imps=SENS[paramKey()]||[];
-  let tot=0;
-  sel.forEach(id=>{{tot+=imps[id]||0;}});
-  document.getElementById("totalImp").textContent="Estimated total improvement: +"+tot.toFixed(2)+"%";
+  // Update total improvement display
+  document.getElementById("totalImp").textContent="Selected lanes: "+sel.size+" of "+LANE_NAMES.length;
   // Update area colors
   updateAreaColors();
   // Update compute panel
@@ -711,17 +731,16 @@ function refresh(){{
 }}
 
 function buildLaneList(){{
-  const imps=SENS[paramKey()]||[];
   const search=(document.getElementById("laneSearch").value||"").toLowerCase();
   // Build alphabetically sorted list
-  const items=LANE_NAMES.map((name,i)=>({{id:i,name:name,imp:imps[i]||0}}));
+  const items=LANE_NAMES.map((name,i)=>({{id:i,name:name}}));
   items.sort((a,b)=>a.name.localeCompare(b.name,'he'));
   // Filter by search
   const filtered=search?items.filter(it=>it.name.toLowerCase().includes(search)):items;
   const container=document.getElementById("laneList");
   container.innerHTML=filtered.map(it=>{{
     const cls=sel.has(it.id)?"lane sel":"lane";
-    return '<div class="'+cls+'" onclick="toggleLane('+it.id+')"><span>'+it.name+'</span><span class="pct">+'+it.imp.toFixed(2)+'%</span></div>';
+    return '<div class="'+cls+'" onclick="toggleLane('+it.id+')"><span>'+it.name+'</span></div>';
   }}).join("");
 }}
 
@@ -741,43 +760,20 @@ function getAccMode(){{
   return radio?radio.value:"origin";
 }}
 
-// Store computed accessibility results
-let computedAcc = null;
-let computedKey = null;
-let computedSel = null;
-
 function updateAreaColors(){{
   const mode=getAccMode();
-  const key=paramKey();
-  const showMode=document.querySelector('input[name="showMode"]:checked')?.value||"accessibility";
 
-  // If showing change and we have computed results for current selection
-  if(showMode==="change" && computedAcc && computedKey===key && computedSel===JSON.stringify([...sel].sort())){{
-    const base=(mode==="dest")?ACC_DEST[key]:ACC_ORIG[key];
-    const comp=(mode==="dest")?computedAcc.dest:computedAcc.orig;
-    if(base&&comp){{
-      // Calculate percentage change for each area, use log scale
-      const deltaPct=comp.map((v,i)=>base[i]>0?100*(v-base[i])/base[i]:0);
-      const posDeltas=deltaPct.filter(d=>d>0);
-      if(posDeltas.length===0)return;
-      // Use natural log for scaling
-      const logDeltas=posDeltas.map(d=>Math.log(d+1));
-      const maxLog=Math.max(...logDeltas);
-      areasLyr.eachLayer(layer=>{{
-        const aid=layer.feature.properties.area_id;
-        const v=Math.max(0,deltaPct[aid]||0);
-        const logV=Math.log(v+1);
-        const n=maxLog>0?logV/maxLog:0;
-        // Use same spectral colormap
-        const color=spectralColor(n);
-        layer.setStyle({{fillColor:color,fillOpacity:.5,weight:1,opacity:.5,color:"#2c3e50"}});
-      }});
-      return;
-    }}
+  // Only show colors if we have computed accessibility for current K/theta
+  if(!computedAcc || computedK!==currentK || computedTheta!==currentTheta){{
+    // No computed data - show neutral coloring
+    areasLyr.eachLayer(layer=>{{
+      layer.setStyle({{fillColor:"#3498db",fillOpacity:.1,weight:1,opacity:.5,color:"#2c3e50"}});
+    }});
+    return;
   }}
 
-  // Show baseline accessibility coloring with log scale
-  const acc=(mode==="dest")?ACC_DEST[key]:ACC_ORIG[key];
+  // Show computed accessibility coloring with log scale
+  const acc=(mode==="dest")?computedAcc.dest:computedAcc.orig;
   if(!acc||!acc.length)return;
   const pos=acc.filter(a=>a>0);
   if(!pos.length)return;
@@ -822,10 +818,9 @@ function spectralColor(t){{
 }}
 
 function showInfo(lid){{
-  const imps=SENS[paramKey()]||[];
   const panel=document.getElementById("info");
   document.getElementById("infoTitle").textContent=LANE_NAMES[lid];
-  document.getElementById("infoBody").textContent="Improvement: +"+((imps[lid]||0).toFixed(3))+"%";
+  document.getElementById("infoBody").textContent=sel.has(lid)?"Selected":"Click to select";
   panel.style.display="block";
 }}
 function hideInfo(){{document.getElementById("info").style.display="none";}}
@@ -847,8 +842,8 @@ function showPath(){{
   if(oi===undefined||di===undefined){{alert("Please select valid origin and destination areas.");return;}}
   if(pathLyrGroup)map.removeLayer(pathLyrGroup);
 
-  const k=parseInt(document.getElementById("kSel").value);
-  document.getElementById("pathInfo").innerHTML="<p>Computing path...</p>";
+  const k=currentK;
+  document.getElementById("pathInfo").innerHTML="<p>Computing path with K="+k+"...</p>";
 
   setTimeout(()=>{{
     try{{
@@ -1006,14 +1001,13 @@ function dijkstra(origIdx,destIdx,k){{
 // === ONLINE COMPUTATION ===
 function updateComputePanel(){{
   document.getElementById("selCount").textContent=sel.size;
-  document.getElementById("compK").textContent=document.getElementById("kSel").value;
-  document.getElementById("compT").textContent=document.getElementById("tSel").value;
+  document.getElementById("compK").textContent=currentK;
+  document.getElementById("compT").textContent=currentTheta;
 }}
 
 function computeAccessibility(){{
-  const k=parseInt(document.getElementById("kSel").value);
-  const theta=parseFloat(document.getElementById("tSel").value);
-  const key=paramKey();
+  const k=currentK;
+  const theta=currentTheta;
   const selArr=[...sel].sort();
   const selKey=JSON.stringify(selArr);
 
@@ -1066,35 +1060,23 @@ function computeAccessibility(){{
       if(i>=n){{
         // Done - show results
         computedAcc={{orig:acc_orig,dest:acc_dest,totalN:totalN}};
-        computedKey=key;
+        computedK=k;
+        computedTheta=theta;
         computedSel=selKey;
 
-        // Compute baseline for comparison
-        const baseOrig=ACC_ORIG[key]||[];
-        const baseDest=ACC_DEST[key]||[];
-        let baseN=0;
-        for(let ii=0;ii<n;ii++){{
-          for(let jj=0;jj<n;jj++){{
-            if(ii!==jj)baseN+=AREA_POP[ii]*AREA_EMP[jj];
-          }}
-        }}
-        // Use actual baseline N from pre-computed (approximate)
-        const baseOrigSum=baseOrig.reduce((a,b)=>a+b,0);
         const newOrigSum=acc_orig.reduce((a,b)=>a+b,0);
-        const improvement=baseOrigSum>0?100*(newOrigSum-baseOrigSum)/baseOrigSum:0;
 
         btn.disabled=false;
         btn.textContent="Compute Accessibility";
         prog.innerHTML="<p style='color:#27ae60'>Computation complete!</p>";
         results.innerHTML=
           '<div class="path-stats">'+
-          '<p><b>Results for selected network:</b></p>'+
+          '<p><b>Results (K='+k+', &theta;='+theta+', '+sel.size+' lanes):</b></p>'+
           '<table>'+
           '<tr><td>Total N (gravity sum):</td><td>'+totalN.toExponential(3)+'</td></tr>'+
-          '<tr><td>Improvement vs baseline:</td><td style="color:'+(improvement>=0?"#27ae60":"#e74c3c")+'">'+
-            (improvement>=0?"+":"")+improvement.toFixed(3)+'%</td></tr>'+
+          '<tr><td>Sum of origin accessibility:</td><td>'+newOrigSum.toExponential(3)+'</td></tr>'+
           '</table>'+
-          '<p style="font-size:.85em;margin-top:8px">Area colors now show change from baseline.</p>'+
+          '<p style="font-size:.85em;margin-top:8px">Area colors now show accessibility values.</p>'+
           '</div>';
         updateAreaColors();
         return;
@@ -1144,10 +1126,6 @@ function computeAccessibility(){{
     processArea(0);
   }},50);
 }}
-
-// === EVENT LISTENERS ===
-document.getElementById("kSel").onchange=()=>{{refresh();updateComputePanel();}};
-document.getElementById("tSel").onchange=()=>{{refresh();updateComputePanel();}};
 
 // Initial render
 buildLaneList();
