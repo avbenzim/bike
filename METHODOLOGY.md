@@ -27,7 +27,7 @@ Roads without bike lanes are penalized by multiplying their length by K:
 - `weight = length` for roads WITH bike lanes
 - `weight = length × K` for roads WITHOUT bike lanes
 
-Higher K values mean cyclists strongly prefer bike lanes, even if it means longer routes. Typical values:
+Higher K values mean cyclists strongly prefer bike lanes, even if it means longer routes:
 - K=10: Mild preference for bike lanes
 - K=100: Strong preference (default)
 - K=500: Very strong preference
