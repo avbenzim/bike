@@ -534,7 +534,7 @@ button:hover{{background:#2980b9}}
       <strong>Area Accessibility</strong>
       <div class="legend-item" style="flex-direction:column;align-items:flex-start;gap:2px">
         <div style="display:flex;align-items:center;gap:4px">
-          <div style="width:80px;height:12px;background:linear-gradient(to right,#0000CD,#00CED1,#90EE90,#FFFF00,#FFA500,#DC143C);border-radius:2px"></div>
+          <div style="width:80px;height:12px;background:linear-gradient(to right,#0000CD,#00CED1,#FFFF00,#FFA500,#DC143C);border-radius:2px"></div>
         </div>
         <div style="display:flex;justify-content:space-between;width:80px;font-size:0.75em">
           <span>Low</span><span>High</span>
@@ -811,14 +811,13 @@ function updateAreaColors(){{
 // Spectral colormap function matching reference image
 function spectralColor(t){{
   // t goes from 0 (low) to 1 (high)
-  // Colors: blue -> cyan -> green -> yellow -> orange -> red
+  // Colors: blue -> cyan -> yellow -> orange -> red (no green)
   const stops=[
-    [0.0, 0,0,205],      // #0000CD blue
-    [0.2, 0,206,209],    // #00CED1 cyan
-    [0.4, 144,238,144],  // #90EE90 light green
-    [0.6, 255,255,0],    // #FFFF00 yellow
-    [0.8, 255,165,0],    // #FFA500 orange
-    [1.0, 220,20,60]     // #DC143C crimson
+    [0.0, 0,0,205],      // #0000CD dark blue
+    [0.25, 0,206,209],   // #00CED1 cyan
+    [0.5, 255,255,0],    // #FFFF00 yellow
+    [0.75, 255,165,0],   // #FFA500 orange
+    [1.0, 220,20,60]     // #DC143C red
   ];
   // Find segment
   let i=0;
