@@ -1325,6 +1325,11 @@ setTimeout(()=>{{
       <li>&theta; = -1.0: Moderate decay (default)</li>
       <li>&theta; = -2.0: Fast decay (only nearby destinations matter)</li>
     </ul>
+    <p style="background:#f5f5f5;padding:10px;border-radius:4px;font-size:0.9em">
+      <b>References:</b><br>
+      Donaldson, D., &amp; Hornbeck, R. (2016). Railroads and American economic growth: A "market access" approach. <i>The Quarterly Journal of Economics</i>, 131(2), 799-858.<br>
+      Tsivanidis, N. (2024). Evaluating the Impact of Urban Transit Infrastructure: Evidence from Bogotá's TransMilenio. <i>American Economic Review</i>, 116(2), 418-463.
+    </p>
 
     <h2 style="color:#34495e">Data Sources</h2>
     <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:0.9em">
@@ -1428,12 +1433,6 @@ setTimeout(()=>{{
       <li><b>Change Mode</b>: Shows percentage improvement from baseline after adding selected lanes</li>
     </ul>
 
-    <h2 style="color:#34495e">References</h2>
-    <ul style="font-size:0.9em">
-      <li>Donaldson, D., &amp; Hornbeck, R. (2016). Railroads and American economic growth: A "market access" approach. <i>The Quarterly Journal of Economics</i>, 131(2), 799-858.</li>
-      <li>Tsivanidis, N. (2024). Evaluating the Impact of Urban Transit Infrastructure: Evidence from Bogotá's TransMilenio. <i>American Economic Review</i>, 116(2), 418-463.</li>
-    </ul>
-
     <h2 style="color:#34495e">Close</h2>
     <p>This methodology provides a systematic, data-driven approach to prioritizing bike lane investments. By combining:</p>
     <ul>
@@ -1450,7 +1449,6 @@ setTimeout(()=>{{
       <li>Integration with public transit</li>
       <li>Political and community priorities</li>
     </ul>
-    <p style="background:#e8f5e9;padding:15px;border-radius:4px;border-left:4px solid #27ae60"><b>The tool is designed to inform decision-making, not replace professional judgment.</b></p>
   </div>
 </div>
 </body>
