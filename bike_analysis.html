@@ -105,6 +105,13 @@ button:hover{background:#2980b9}
     </div>
   </div>
   <div class="cg">
+    <label>Scale:</label>
+    <div class="radio-group">
+      <label><input type="radio" name="scaleMode" value="linear" checked onchange="updateAreaColors()"> Linear</label>
+      <label><input type="radio" name="scaleMode" value="log" onchange="updateAreaColors()"> Log</label>
+    </div>
+  </div>
+  <div class="cg">
     <button onclick="clearSel()">Clear selection</button>
   </div>
 </div>
@@ -120,7 +127,7 @@ button:hover{background:#2980b9}
       <div class="legend-item"><div class="legend-line" style="background:#1565C0;height:6px"></div>Path on bike lane</div>
       <div class="legend-item"><div class="legend-line" style="background:#E65100;height:6px"></div>Path on road</div>
       <hr style="margin:8px 0;border:none;border-top:1px solid #ccc">
-      <strong>Area Accessibility</strong>
+      <strong id="accLegendLabel">Area Accessibility</strong>
       <div class="legend-item" style="flex-direction:column;align-items:flex-start;gap:2px">
         <div style="display:flex;align-items:center;gap:4px">
           <div style="width:80px;height:12px;background:linear-gradient(to right,rgb(255,0,100),rgb(128,128,100),rgb(0,255,100));border-radius:2px"></div>
@@ -386,11 +393,29 @@ function updateAreaColors(){
   if(!acc||!acc.length)return;
   const pos=acc.filter(a=>a>0);
   if(!pos.length)return;
-  const mn=Math.min(...pos),mx=Math.max(...pos);
+
+  // Check scale mode
+  const scaleMode=document.querySelector('input[name="scaleMode"]:checked')?.value||"linear";
+  const useLog=scaleMode==="log";
+
+  // Update legend label
+  const accLegendLabel=document.getElementById("accLegendLabel");
+  if(accLegendLabel){
+    accLegendLabel.textContent=useLog?"Area Accessibility (Log)":"Area Accessibility";
+  }
+
+  // Transform values based on scale mode
+  let vals=pos;
+  if(useLog){
+    vals=pos.map(v=>Math.log10(Math.max(v,1)));
+  }
+  const mn=Math.min(...vals),mx=Math.max(...vals);
+
   areasLyr.eachLayer(layer=>{
     const aid=layer.feature.properties.area_id;
     const v=acc[aid]||0;
-    const n=mx>mn?(v-mn)/(mx-mn):0;
+    let transformed=useLog?Math.log10(Math.max(v,1)):v;
+    const n=mx>mn?(transformed-mn)/(mx-mn):0;
     const r=Math.round(255*(1-n)),g=Math.round(255*n);
     layer.setStyle({fillColor:"rgb("+r+","+g+",100)",fillOpacity:.4,weight:1,opacity:.5,color:"#2c3e50"});
   });
