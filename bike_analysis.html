@@ -120,24 +120,13 @@ button:hover{background:#2980b9}
       <div class="legend-item"><div class="legend-line" style="background:#1565C0;height:6px"></div>Path on bike lane</div>
       <div class="legend-item"><div class="legend-line" style="background:#E65100;height:6px"></div>Path on road</div>
       <hr style="margin:8px 0;border:none;border-top:1px solid #ccc">
-      <strong>Area Accessibility</strong>
+      <strong>Area Accessibility (log scale)</strong>
       <div class="legend-item" style="flex-direction:column;align-items:flex-start;gap:2px">
         <div style="display:flex;align-items:center;gap:4px">
           <div style="width:80px;height:12px;background:linear-gradient(to right,#0000CD,#00CED1,#FFFF00,#FFA500,#DC143C);border-radius:2px"></div>
         </div>
         <div style="display:flex;justify-content:space-between;width:80px;font-size:0.75em">
           <span>Low</span><span>High</span>
-        </div>
-      </div>
-      <div id="deltaLegend" style="display:none;margin-top:4px">
-        <strong>Change (<span id="deltaSelCount">1</span> lane selected)</strong>
-        <div class="legend-item" style="flex-direction:column;align-items:flex-start;gap:2px">
-          <div style="display:flex;align-items:center;gap:4px">
-            <div style="width:80px;height:12px;background:linear-gradient(to right,rgb(240,240,240),rgb(100,100,255));border-radius:2px"></div>
-          </div>
-          <div style="display:flex;justify-content:space-between;width:80px;font-size:0.75em">
-            <span>0</span><span id="deltaMax">+</span>
-          </div>
         </div>
       </div>
     </div>
@@ -349,7 +338,6 @@ let computedSel = null;
 function updateAreaColors(){
   const mode=getAccMode();
   const key=paramKey();
-  const deltaLegend=document.getElementById("deltaLegend");
   const showMode=document.querySelector('input[name="showMode"]:checked')?.value||"accessibility";
 
   // If showing change and we have computed results for current selection
@@ -357,41 +345,43 @@ function updateAreaColors(){
     const base=(mode==="dest")?ACC_DEST[key]:ACC_ORIG[key];
     const comp=(mode==="dest")?computedAcc.dest:computedAcc.orig;
     if(base&&comp){
-      // Calculate percentage change for each area
+      // Calculate percentage change for each area, use log scale
       const deltaPct=comp.map((v,i)=>base[i]>0?100*(v-base[i])/base[i]:0);
-      const maxPct=Math.max(...deltaPct,0.01);
-      // Update legend with percentage
-      const deltaMaxEl=document.getElementById("deltaMax");
-      const deltaSelEl=document.getElementById("deltaSelCount");
-      if(deltaMaxEl)deltaMaxEl.textContent="+"+maxPct.toFixed(1)+"%";
-      if(deltaSelEl)deltaSelEl.textContent=sel.size;
+      const posDeltas=deltaPct.filter(d=>d>0);
+      if(posDeltas.length===0)return;
+      // Use natural log for scaling
+      const logDeltas=posDeltas.map(d=>Math.log(d+1));
+      const maxLog=Math.max(...logDeltas);
       areasLyr.eachLayer(layer=>{
         const aid=layer.feature.properties.area_id;
         const v=Math.max(0,deltaPct[aid]||0);
-        const n=v/maxPct;
-        // Color from gray (0) to blue (max positive)
-        const r=Math.round(240*(1-n)+100*n);
-        const g=Math.round(240*(1-n)+100*n);
-        const b=Math.round(240*(1-n)+255*n);
-        layer.setStyle({fillColor:"rgb("+r+","+g+","+b+")",fillOpacity:.5,weight:1,opacity:.5,color:"#2c3e50"});
+        const logV=Math.log(v+1);
+        const n=maxLog>0?logV/maxLog:0;
+        // Use same spectral colormap
+        const color=spectralColor(n);
+        layer.setStyle({fillColor:color,fillOpacity:.5,weight:1,opacity:.5,color:"#2c3e50"});
       });
-      if(deltaLegend)deltaLegend.style.display="block";
       return;
     }
   }
 
-  // Show baseline accessibility coloring
-  if(deltaLegend)deltaLegend.style.display="none";
+  // Show baseline accessibility coloring with log scale
   const acc=(mode==="dest")?ACC_DEST[key]:ACC_ORIG[key];
   if(!acc||!acc.length)return;
   const pos=acc.filter(a=>a>0);
   if(!pos.length)return;
-  const mn=Math.min(...pos),mx=Math.max(...pos);
+  // Use natural log for scaling
+  const logVals=pos.map(v=>Math.log(v));
+  const mnLog=Math.min(...logVals),mxLog=Math.max(...logVals);
   areasLyr.eachLayer(layer=>{
     const aid=layer.feature.properties.area_id;
     const v=acc[aid]||0;
-    const n=mx>mn?(v-mn)/(mx-mn):0;
-    // Spectral colormap: blue (low) -> cyan -> green -> yellow -> orange -> red (high)
+    if(v<=0){
+      layer.setStyle({fillColor:"#BEBEBE",fillOpacity:.5,weight:1,opacity:.5,color:"#2c3e50"});
+      return;
+    }
+    const logV=Math.log(v);
+    const n=mxLog>mnLog?(logV-mnLog)/(mxLog-mnLog):0;
     const color=spectralColor(n);
     layer.setStyle({fillColor:color,fillOpacity:.5,weight:1,opacity:.5,color:"#2c3e50"});
   });
@@ -805,7 +795,11 @@ updateComputePanel();
     <p><b>Destination Accessibility</b> (where jobs are): acc<sub>dest</sub>[j] = &Sigma;<sub>i</sub> P<sub>i</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup> (people who can reach area j - measures how good an area is for employers)</p>
 
     <h2 style="color:#34495e">References</h2>
-    <p>The gravity model approach is based on Hansen's accessibility measure (1959), widely used in transportation planning.</p>
+    <p>The market access approach is based on:</p>
+    <ul style="font-size:0.95em">
+      <li>Donaldson, D., &amp; Hornbeck, R. (2016). Railroads and American economic growth: A "market access" approach. <i>The Quarterly Journal of Economics</i>, 131(2), 799-858.</li>
+      <li>Tsivanidis, N. (2026). Evaluating the Impact of Urban Transit Infrastructure: Evidence from Bogotá's TransMilenio. <i>American Economic Review</i>, 116(2), 418-463.</li>
+    </ul>
   </div>
 </div>
 </body>
