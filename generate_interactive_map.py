@@ -483,13 +483,20 @@ button:hover{{background:#2980b9}}
   <div class="cg">
     <label>Color areas by:</label>
     <div class="radio-group">
-      <label><input type="radio" name="accMode" value="origin" checked onchange="refresh()"> Origin</label>
-      <label><input type="radio" name="accMode" value="dest" onchange="refresh()"> Destination</label>
+      <label><input type="radio" name="accMode" value="origin" checked onchange="updateAreaColors()"> Origin</label>
+      <label><input type="radio" name="accMode" value="dest" onchange="updateAreaColors()"> Destination</label>
     </div>
   </div>
   <div class="cg">
-    <button onclick="selectAllLanes()">Select All Lanes</button>
-    <button onclick="clearSel()">Clear Selection</button>
+    <label>Show:</label>
+    <div class="radio-group">
+      <label><input type="radio" name="showMode" value="accessibility" checked onchange="updateAreaColors()"> Accessibility</label>
+      <label><input type="radio" name="showMode" value="change" onchange="updateAreaColors()"> Change (%)</label>
+    </div>
+  </div>
+  <div class="cg">
+    <button onclick="selectAllLanes()">Select All</button>
+    <button onclick="clearSel()">Clear</button>
   </div>
 </div>
 <div class="main">
@@ -583,7 +590,14 @@ const sel=new Set();
 let wishLyr,areasLyr,pathLyrGroup;
 let currentK=100;
 let currentTheta=-1.0;
-let computedAcc=null; // Stores computed accessibility results
+
+// Baseline = accessibility with NO wishing lanes (computed when K/theta changes)
+let baselineAcc=null;
+let baselineK=null;
+let baselineTheta=null;
+
+// Computed = accessibility WITH selected wishing lanes
+let computedAcc=null;
 let computedK=null;
 let computedTheta=null;
 let computedSel=null;
@@ -593,16 +607,15 @@ function getK(){{return currentK;}}
 function getTheta(){{return currentTheta;}}
 
 function handleKChange(){{
-  const sel=document.getElementById("kSel");
+  const s=document.getElementById("kSel");
   const custom=document.getElementById("kCustom");
-  if(sel.value==="custom"){{
+  if(s.value==="custom"){{
     custom.style.display="inline";
     custom.focus();
   }}else{{
     custom.style.display="none";
-    currentK=parseFloat(sel.value);
-    refresh();
-    updateComputePanel();
+    currentK=parseFloat(s.value);
+    onParamsChanged();
   }}
 }}
 
@@ -610,22 +623,20 @@ function applyCustomK(){{
   const val=parseFloat(document.getElementById("kCustom").value);
   if(!isNaN(val)&&val>0){{
     currentK=val;
-    refresh();
-    updateComputePanel();
+    onParamsChanged();
   }}
 }}
 
 function handleThetaChange(){{
-  const sel=document.getElementById("tSel");
+  const s=document.getElementById("tSel");
   const custom=document.getElementById("tCustom");
-  if(sel.value==="custom"){{
+  if(s.value==="custom"){{
     custom.style.display="inline";
     custom.focus();
   }}else{{
     custom.style.display="none";
-    currentTheta=parseFloat(sel.value);
-    refresh();
-    updateComputePanel();
+    currentTheta=parseFloat(s.value);
+    onParamsChanged();
   }}
 }}
 
@@ -633,9 +644,20 @@ function applyCustomTheta(){{
   const val=parseFloat(document.getElementById("tCustom").value);
   if(!isNaN(val)&&val<0){{
     currentTheta=val;
-    refresh();
-    updateComputePanel();
+    onParamsChanged();
   }}
+}}
+
+function onParamsChanged(){{
+  // Clear computed results when params change
+  computedAcc=null;
+  computedK=null;
+  computedTheta=null;
+  computedSel=null;
+  // Compute baseline for new params
+  computeBaseline();
+  refresh();
+  updateComputePanel();
 }}
 
 function selectAllLanes(){{
@@ -663,14 +685,24 @@ areasLyr=L.geoJSON(AREAS,{{
       let html="<b>"+name+"</b><br>"+
         "Pop: "+Math.round(p.pop).toLocaleString()+"<br>"+
         "Emp: "+Math.round(p.emp).toLocaleString();
-      // Add accessibility if computed
-      if(computedAcc && computedK===currentK && computedTheta===currentTheta){{
-        const acc=(mode==="dest")?computedAcc.dest:computedAcc.orig;
-        if(acc){{
-          html+="<hr style='margin:4px 0'>Accessibility: "+acc[aid].toFixed(1);
+      html+="<hr style='margin:4px 0'>";
+      // Show baseline
+      if(baselineAcc && baselineK===currentK && baselineTheta===currentTheta){{
+        const baseAcc=(mode==="dest")?baselineAcc.dest:baselineAcc.orig;
+        html+="Baseline: "+baseAcc[aid].toFixed(1)+"<br>";
+        // Show computed and change if available
+        if(computedAcc && computedK===currentK && computedTheta===currentTheta){{
+          const compAcc=(mode==="dest")?computedAcc.dest:computedAcc.orig;
+          html+="With lanes: "+compAcc[aid].toFixed(1)+"<br>";
+          if(baseAcc[aid]>0){{
+            const changePct=100*(compAcc[aid]-baseAcc[aid])/baseAcc[aid];
+            html+="Change: <span style='color:"+(changePct>=0?"#27ae60":"#e74c3c")+";font-weight:bold'>"+(changePct>=0?"+":"")+changePct.toFixed(2)+"%</span>";
+          }}
+        }}else{{
+          html+="<i>Select lanes & compute to see change</i>";
         }}
       }}else{{
-        html+="<hr style='margin:4px 0'><i>Click 'Compute Accessibility' to see values</i>";
+        html+="<i>Computing baseline...</i>";
       }}
       L.popup().setLatLng(e.latlng).setContent(html).openOn(map);
     }});
@@ -762,19 +794,67 @@ function getAccMode(){{
 
 function updateAreaColors(){{
   const mode=getAccMode();
+  const showMode=document.querySelector('input[name="showMode"]:checked')?.value||"accessibility";
 
-  // Only show colors if we have computed accessibility for current K/theta
-  if(!computedAcc || computedK!==currentK || computedTheta!==currentTheta){{
-    // No computed data - show neutral coloring
+  // If showing "change" mode, need both baseline and computed
+  if(showMode==="change"){{
+    if(!baselineAcc || !computedAcc || baselineK!==currentK || baselineTheta!==currentTheta ||
+       computedK!==currentK || computedTheta!==currentTheta){{
+      // Need to compute first
+      areasLyr.eachLayer(layer=>{{
+        layer.setStyle({{fillColor:"#3498db",fillOpacity:.1,weight:1,opacity:.5,color:"#2c3e50"}});
+      }});
+      return;
+    }}
+    // Show percentage change from baseline
+    const base=(mode==="dest")?baselineAcc.dest:baselineAcc.orig;
+    const comp=(mode==="dest")?computedAcc.dest:computedAcc.orig;
+    if(!base||!comp)return;
+
+    // Calculate percentage changes
+    const deltaPct=comp.map((v,i)=>base[i]>0?100*(v-base[i])/base[i]:0);
+    const posDeltas=deltaPct.filter(d=>d>0);
+    if(posDeltas.length===0){{
+      // No positive changes
+      areasLyr.eachLayer(layer=>{{
+        layer.setStyle({{fillColor:"#BEBEBE",fillOpacity:.3,weight:1,opacity:.5,color:"#2c3e50"}});
+      }});
+      return;
+    }}
+    // Use log scale for positive changes
+    const logDeltas=posDeltas.map(d=>Math.log(d+1));
+    const maxLog=Math.max(...logDeltas);
+    areasLyr.eachLayer(layer=>{{
+      const aid=layer.feature.properties.area_id;
+      const v=Math.max(0,deltaPct[aid]||0);
+      if(v<=0){{
+        layer.setStyle({{fillColor:"#BEBEBE",fillOpacity:.3,weight:1,opacity:.5,color:"#2c3e50"}});
+        return;
+      }}
+      const logV=Math.log(v+1);
+      const n=maxLog>0?logV/maxLog:0;
+      const color=spectralColor(n);
+      layer.setStyle({{fillColor:color,fillOpacity:.6,weight:1,opacity:.5,color:"#2c3e50"}});
+    }});
+    return;
+  }}
+
+  // Accessibility mode: show baseline if no computed, or computed if available
+  let acc=null;
+  if(computedAcc && computedK===currentK && computedTheta===currentTheta){{
+    acc=(mode==="dest")?computedAcc.dest:computedAcc.orig;
+  }}else if(baselineAcc && baselineK===currentK && baselineTheta===currentTheta){{
+    acc=(mode==="dest")?baselineAcc.dest:baselineAcc.orig;
+  }}
+
+  if(!acc||!acc.length){{
+    // No data - neutral coloring
     areasLyr.eachLayer(layer=>{{
       layer.setStyle({{fillColor:"#3498db",fillOpacity:.1,weight:1,opacity:.5,color:"#2c3e50"}});
     }});
     return;
   }}
 
-  // Show computed accessibility coloring with log scale
-  const acc=(mode==="dest")?computedAcc.dest:computedAcc.orig;
-  if(!acc||!acc.length)return;
   const pos=acc.filter(a=>a>0);
   if(!pos.length)return;
   // Use natural log for scaling
@@ -1005,6 +1085,67 @@ function updateComputePanel(){{
   document.getElementById("compT").textContent=currentTheta;
 }}
 
+// Compute baseline accessibility (no wishing lanes) for current K/theta
+function computeBaseline(){{
+  const k=currentK;
+  const theta=currentTheta;
+
+  // Build adjacency list WITHOUT any wishing lanes
+  const adj={{}};
+  for(const e of EDGES){{
+    const len=e[2],bike=!!e[3];
+    const w=bike?len:len*k;
+    const a=String(e[0]),b=String(e[1]);
+    if(!adj[a])adj[a]=[];
+    if(!adj[b])adj[b]=[];
+    adj[a].push({{n:b,w:w}});
+    adj[b].push({{n:a,w:w}});
+  }}
+
+  const n=AREA_NODES.length;
+  const acc_orig=new Array(n).fill(0);
+  const acc_dest=new Array(n).fill(0);
+  let totalN=0;
+
+  // Synchronous computation for baseline (runs in background conceptually)
+  for(let i=0;i<n;i++){{
+    const src=String(AREA_NODES[i]);
+    const dist={{}},visited=new Set();
+    dist[src]=0;
+    let pq=[[0,src]];
+    while(pq.length){{
+      const[cd,cur]=pq.shift();
+      if(visited.has(cur))continue;
+      visited.add(cur);
+      for(const{{n:nb,w}}of(adj[cur]||[])){{
+        if(visited.has(nb))continue;
+        const nd=cd+w;
+        if(dist[nb]===undefined||nd<dist[nb]){{
+          dist[nb]=nd;
+          let ins=pq.findIndex(x=>x[0]>nd);
+          if(ins<0)ins=pq.length;
+          pq.splice(ins,0,[nd,nb]);
+        }}
+      }}
+    }}
+    for(let j=0;j<n;j++){{
+      if(i===j)continue;
+      const dstNode=String(AREA_NODES[j]);
+      if(dist[dstNode]!==undefined){{
+        const tau=Math.max(dist[dstNode]/1000,0.1);
+        const decay=Math.pow(tau,theta);
+        acc_orig[i]+=AREA_EMP[j]*decay;
+        acc_dest[j]+=AREA_POP[i]*decay;
+        totalN+=AREA_POP[i]*AREA_EMP[j]*decay;
+      }}
+    }}
+  }}
+
+  baselineAcc={{orig:acc_orig,dest:acc_dest,totalN:totalN}};
+  baselineK=k;
+  baselineTheta=theta;
+}}
+
 function computeAccessibility(){{
   const k=currentK;
   const theta=currentTheta;
@@ -1064,7 +1205,15 @@ function computeAccessibility(){{
         computedTheta=theta;
         computedSel=selKey;
 
-        const newOrigSum=acc_orig.reduce((a,b)=>a+b,0);
+        // Calculate improvement vs baseline
+        let improvementPct=0;
+        let baselineN=0;
+        if(baselineAcc && baselineK===k && baselineTheta===theta){{
+          baselineN=baselineAcc.totalN;
+          if(baselineN>0){{
+            improvementPct=100*(totalN-baselineN)/baselineN;
+          }}
+        }}
 
         btn.disabled=false;
         btn.textContent="Compute Accessibility";
@@ -1073,10 +1222,11 @@ function computeAccessibility(){{
           '<div class="path-stats">'+
           '<p><b>Results (K='+k+', &theta;='+theta+', '+sel.size+' lanes):</b></p>'+
           '<table>'+
-          '<tr><td>Total N (gravity sum):</td><td>'+totalN.toExponential(3)+'</td></tr>'+
-          '<tr><td>Sum of origin accessibility:</td><td>'+newOrigSum.toExponential(3)+'</td></tr>'+
+          '<tr><td>Baseline N:</td><td>'+baselineN.toExponential(3)+'</td></tr>'+
+          '<tr><td>With selected lanes:</td><td>'+totalN.toExponential(3)+'</td></tr>'+
+          '<tr><td>Improvement:</td><td style="color:'+(improvementPct>=0?'#27ae60':'#e74c3c')+';font-weight:bold">'+(improvementPct>=0?'+':'')+improvementPct.toFixed(3)+'%</td></tr>'+
           '</table>'+
-          '<p style="font-size:.85em;margin-top:8px">Area colors now show accessibility values.</p>'+
+          '<p style="font-size:.85em;margin-top:8px">Switch to "Change (%)" mode to see per-area improvements.</p>'+
           '</div>';
         updateAreaColors();
         return;
@@ -1129,13 +1279,17 @@ function computeAccessibility(){{
 
 // Initial render
 buildLaneList();
-updateAreaColors();
 updateComputePanel();
+// Compute baseline on startup (shows loading message briefly)
+setTimeout(()=>{{
+  computeBaseline();
+  updateAreaColors();
+}},100);
 </script>
 
 <!-- Methodology Modal -->
 <div id="methodModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;justify-content:center;align-items:center">
-  <div style="background:#fff;max-width:800px;max-height:90vh;overflow-y:auto;padding:30px;border-radius:8px;position:relative;margin:20px">
+  <div style="background:#fff;max-width:900px;max-height:90vh;overflow-y:auto;padding:30px;border-radius:8px;position:relative;margin:20px">
     <button onclick="document.getElementById('methodModal').style.display='none'" style="position:absolute;top:10px;right:15px;background:none;border:none;font-size:24px;cursor:pointer">&times;</button>
     <h1 style="color:#2c3e50;margin-top:0">Jerusalem Bike Lane Analysis - Methodology</h1>
 
@@ -1151,7 +1305,7 @@ updateComputePanel();
     <ul>
       <li><b>P<sub>i</sub></b> = Population of area i (potential trip origins)</li>
       <li><b>E<sub>j</sub></b> = Employment in area j (potential trip destinations)</li>
-      <li><b>&tau;<sub>ij</sub></b> = Travel cost (shortest path distance) from area i to area j</li>
+      <li><b>&tau;<sub>ij</sub></b> = Travel cost (shortest path distance in km) from area i to area j</li>
       <li><b>&theta;</b> = Distance decay parameter (negative, typically -1 to -2)</li>
     </ul>
 
@@ -1172,22 +1326,78 @@ updateComputePanel();
       <li>&theta; = -2.0: Fast decay (only nearby destinations matter)</li>
     </ul>
 
+    <h2 style="color:#34495e">Road Network Construction</h2>
+    <p>The road network is built from Jerusalem road data (KML format) with the following process:</p>
+    <ol>
+      <li><b>Node Creation</b>: Road endpoints are snapped to a grid (15m tolerance) to create a connected graph</li>
+      <li><b>Edge Creation</b>: Each road segment becomes an edge with its physical length as the base weight</li>
+      <li><b>Bike Lane Matching</b>: Existing bike lanes are spatially matched to road edges using a 15m buffer and 50% overlap threshold</li>
+      <li><b>Coordinate Systems</b>: Calculations use Israeli TM (EPSG:2039) for accurate distance; display uses WGS84 (EPSG:4326)</li>
+    </ol>
+
+    <h2 style="color:#34495e">Shortest Path Algorithm</h2>
+    <p>We use <b>Dijkstra's algorithm</b> to compute shortest paths between all area centroids:</p>
+    <ul>
+      <li><b>Graph</b>: Undirected weighted graph where edge weight = length &times; K for roads without bike lanes</li>
+      <li><b>Source</b>: Nearest network node to each area centroid</li>
+      <li><b>Implementation</b>: Priority queue (min-heap) for O((V+E) log V) complexity</li>
+      <li><b>Output</b>: Distance matrix &tau;<sub>ij</sub> between all area pairs</li>
+    </ul>
+    <p style="background:#f5f5f5;padding:10px;border-radius:4px;font-size:0.9em">
+      <b>Reference:</b> Dijkstra, E.W. (1959). A note on two problems in connexion with graphs. <i>Numerische Mathematik</i>, 1(1), 269-271.
+    </p>
+
+    <h2 style="color:#34495e">Online Computation</h2>
+    <p>All accessibility calculations are performed in the browser using JavaScript:</p>
+    <ol>
+      <li><b>Baseline Computation</b>: When K or &theta; changes, compute accessibility with existing lanes only</li>
+      <li><b>Network Update</b>: When wishing lanes are selected, mark their corresponding road edges as bike lanes (weight = length instead of length &times; K)</li>
+      <li><b>Full Recomputation</b>: Run Dijkstra from each of the ~200 area centroids to compute new &tau;<sub>ij</sub> matrix</li>
+      <li><b>Accessibility Aggregation</b>: Sum P<sub>i</sub> &times; E<sub>j</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup> for all pairs</li>
+    </ol>
+
     <h2 style="color:#34495e">How Lanes Are Ranked</h2>
     <ol>
-      <li><b>Baseline Calculation</b>: Compute total N using existing bike lanes</li>
-      <li><b>Per-Lane Evaluation</b>: For each wishing list lane, add it and compute improvement: %&Delta; = 100 &times; (N<sub>new</sub> - N<sub>baseline</sub>) / N<sub>baseline</sub></li>
-      <li><b>Ranking</b>: Sort lanes by improvement (highest first)</li>
+      <li><b>Baseline Calculation</b>: Compute total N using existing bike lanes only</li>
+      <li><b>With Selected Lanes</b>: Add selected wishing lanes and recompute N</li>
+      <li><b>Improvement</b>: %&Delta; = 100 &times; (N<sub>new</sub> - N<sub>baseline</sub>) / N<sub>baseline</sub></li>
     </ol>
 
     <h2 style="color:#34495e">Area Accessibility</h2>
-    <p><b>Origin Accessibility</b> (where people live): acc<sub>origin</sub>[i] = &Sigma;<sub>j</sub> E<sub>j</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup> (jobs reachable FROM area i - measures how good an area is for residents)</p>
-    <p><b>Destination Accessibility</b> (where jobs are): acc<sub>dest</sub>[j] = &Sigma;<sub>i</sub> P<sub>i</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup> (people who can reach area j - measures how good an area is for employers)</p>
+    <p><b>Origin Accessibility</b> (where people live):</p>
+    <p style="background:#f5f5f5;padding:10px;border-radius:4px;font-family:monospace">
+      acc<sub>origin</sub>[i] = &Sigma;<sub>j</sub> E<sub>j</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup>
+    </p>
+    <p>Measures how many jobs area i residents can access (weighted by distance).</p>
+
+    <p><b>Destination Accessibility</b> (where jobs are):</p>
+    <p style="background:#f5f5f5;padding:10px;border-radius:4px;font-family:monospace">
+      acc<sub>dest</sub>[j] = &Sigma;<sub>i</sub> P<sub>i</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup>
+    </p>
+    <p>Measures how many people can reach jobs in area j (weighted by distance).</p>
+
+    <h2 style="color:#34495e">Visualization</h2>
+    <ul>
+      <li><b>Area Colors</b>: Spectral colormap (blue &rarr; cyan &rarr; yellow &rarr; orange &rarr; red) with logarithmic scaling</li>
+      <li><b>Accessibility Mode</b>: Shows absolute accessibility values</li>
+      <li><b>Change Mode</b>: Shows percentage improvement from baseline after adding selected lanes</li>
+    </ul>
 
     <h2 style="color:#34495e">References</h2>
-    <p>The market access approach is based on:</p>
-    <ul style="font-size:0.95em">
+    <h3>Market Access / Gravity Models</h3>
+    <ul style="font-size:0.9em">
       <li>Donaldson, D., &amp; Hornbeck, R. (2016). Railroads and American economic growth: A "market access" approach. <i>The Quarterly Journal of Economics</i>, 131(2), 799-858.</li>
-      <li>Tsivanidis, N. (2026). Evaluating the Impact of Urban Transit Infrastructure: Evidence from Bogotá's TransMilenio. <i>American Economic Review</i>, 116(2), 418-463.</li>
+      <li>Tsivanidis, N. (2024). Evaluating the Impact of Urban Transit Infrastructure: Evidence from Bogotá's TransMilenio. <i>American Economic Review</i>, 116(2), 418-463.</li>
+      <li>Harris, C.D. (1954). The market as a factor in the localization of industry in the United States. <i>Annals of the Association of American Geographers</i>, 44(4), 315-348.</li>
+    </ul>
+    <h3>Graph Algorithms</h3>
+    <ul style="font-size:0.9em">
+      <li>Dijkstra, E.W. (1959). A note on two problems in connexion with graphs. <i>Numerische Mathematik</i>, 1(1), 269-271.</li>
+      <li>Cormen, T.H., Leiserson, C.E., Rivest, R.L., &amp; Stein, C. (2009). <i>Introduction to Algorithms</i> (3rd ed.). MIT Press. Chapter 24: Single-Source Shortest Paths.</li>
+    </ul>
+    <h3>Spatial Analysis</h3>
+    <ul style="font-size:0.9em">
+      <li>de Berg, M., Cheong, O., van Kreveld, M., &amp; Overmars, M. (2008). <i>Computational Geometry: Algorithms and Applications</i> (3rd ed.). Springer. Chapter 5: Range Searching.</li>
     </ul>
   </div>
 </div>
