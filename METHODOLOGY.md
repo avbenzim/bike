@@ -117,8 +117,7 @@ For disconnected network components:
 
 1. **Component Detection**: Use NetworkX to find all connected components
 2. **Minimum Spanning Tree Approach**: Connect isolated components by adding edges between closest nodes
-3. **Area Adjacency**: Areas within 800m are connected to ensure full coverage
-4. **Result**: Ensures every area can reach every other area through some path
+3. **Result**: Ensures every area can reach every other area through some path
 
 This connectivity fixing is essential because raw GIS data often has small gaps, coordinate mismatches, or isolated segments that would otherwise break shortest path calculations.
 

@@ -128,24 +128,6 @@ def create_road_network_from_areas(areas_gdf):
                 adjacencies += 1
 
     print(f"  Found {adjacencies} adjacent area pairs")
-
-    # Also add edges for areas within 500m (to ensure connectivity)
-    print("  Adding connections for nearby areas...")
-    nearby_connections = 0
-
-    for i in range(n_areas):
-        for j in range(i + 1, n_areas):
-            if not G.has_edge(i, j):
-                dist = centroids.iloc[i].distance(centroids.iloc[j])
-                if dist < 800:  # Connect areas within 800m
-                    G.add_edge(i, j,
-                              weight=dist,
-                              length=dist,
-                              type='road',
-                              has_bike_lane=False)
-                    nearby_connections += 1
-
-    print(f"  Added {nearby_connections} nearby connections")
     print(f"  Road network: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges")
 
     # Check connectivity

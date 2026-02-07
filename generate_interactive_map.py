@@ -1378,7 +1378,6 @@ setTimeout(()=>{{
     <ol>
       <li><b>Component Detection</b>: Find all connected components using graph algorithms</li>
       <li><b>Minimum Spanning Tree Approach</b>: Connect isolated components by adding edges between closest nodes</li>
-      <li><b>Area Adjacency</b>: Areas within 800m are connected to ensure full coverage</li>
     </ol>
     <p style="background:#f5f5f5;padding:10px;border-radius:4px;font-size:0.9em">This connectivity fixing is essential because raw GIS data often has small gaps, coordinate mismatches, or isolated segments that would otherwise break shortest path calculations.</p>
 
