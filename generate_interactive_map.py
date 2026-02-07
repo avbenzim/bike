@@ -1326,14 +1326,61 @@ setTimeout(()=>{{
       <li>&theta; = -2.0: Fast decay (only nearby destinations matter)</li>
     </ul>
 
+    <h2 style="color:#34495e">Data Sources</h2>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:20px;font-size:0.9em">
+      <tr style="background:#34495e;color:#fff">
+        <th style="padding:8px;text-align:left;border:1px solid #ddd">Data</th>
+        <th style="padding:8px;text-align:left;border:1px solid #ddd">Source</th>
+        <th style="padding:8px;text-align:left;border:1px solid #ddd">Year</th>
+      </tr>
+      <tr><td style="padding:8px;border:1px solid #ddd">Statistical Areas</td><td style="padding:8px;border:1px solid #ddd">Jerusalem Transportation Master Plan Team</td><td style="padding:8px;border:1px solid #ddd">2025 projections</td></tr>
+      <tr style="background:#f9f9f9"><td style="padding:8px;border:1px solid #ddd">Population (pop_2025)</td><td style="padding:8px;border:1px solid #ddd">Jerusalem Transportation Master Plan Team</td><td style="padding:8px;border:1px solid #ddd">2025 projections</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd">Employment (emp_2025)</td><td style="padding:8px;border:1px solid #ddd">Jerusalem Transportation Master Plan Team</td><td style="padding:8px;border:1px solid #ddd">2025 projections</td></tr>
+      <tr style="background:#f9f9f9"><td style="padding:8px;border:1px solid #ddd">Completed Bike Lanes</td><td style="padding:8px;border:1px solid #ddd">Jerusalem Transportation Master Plan Team</td><td style="padding:8px;border:1px solid #ddd">Current</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd">Under Construction Bike Lanes</td><td style="padding:8px;border:1px solid #ddd">Jerusalem Transportation Master Plan Team</td><td style="padding:8px;border:1px solid #ddd">Current</td></tr>
+      <tr style="background:#f9f9f9"><td style="padding:8px;border:1px solid #ddd">Wishing List Bike Lanes</td><td style="padding:8px;border:1px solid #ddd">Jerusalem Transportation Master Plan Team</td><td style="padding:8px;border:1px solid #ddd">Proposed</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd">Road Network</td><td style="padding:8px;border:1px solid #ddd">OpenStreetMap</td><td style="padding:8px;border:1px solid #ddd">Current</td></tr>
+    </table>
+
     <h2 style="color:#34495e">Road Network Construction</h2>
-    <p>The road network is built from Jerusalem road data (KML format) with the following process:</p>
+    <p>The road network is built from Jerusalem road data (from OpenStreetMap, KML format) with the following process:</p>
     <ol>
       <li><b>Node Creation</b>: Road endpoints are snapped to a grid (15m tolerance) to create a connected graph</li>
       <li><b>Edge Creation</b>: Each road segment becomes an edge with its physical length as the base weight</li>
       <li><b>Bike Lane Matching</b>: Existing bike lanes are spatially matched to road edges using a 15m buffer and 50% overlap threshold</li>
       <li><b>Coordinate Systems</b>: Calculations use Israeli TM (EPSG:2039) for accurate distance; display uses WGS84 (EPSG:4326)</li>
     </ol>
+
+    <h2 style="color:#34495e">Network Connectivity</h2>
+    <p>The tool ensures the network is fully connected through several mechanisms:</p>
+    <h4>Node Merging</h4>
+    <ul>
+      <li><b>Tolerance</b>: Nodes within 15 meters are merged into a single node</li>
+      <li><b>Purpose</b>: Handles imprecise GPS coordinates and ensures lane endpoints connect properly to roads</li>
+    </ul>
+    <h4>Intersection Detection</h4>
+    <ul>
+      <li>Bike lanes are overlaid on the road network</li>
+      <li>Intersection points between bike lanes and roads are detected automatically</li>
+      <li>New nodes are created at every intersection point</li>
+      <li>Edges are split at intersection points to enable routing through the network</li>
+    </ul>
+    <h4>Gap Connection Algorithm</h4>
+    <p>For bike lanes with gaps between segments:</p>
+    <ol>
+      <li><b>Endpoint Extraction</b>: Extract start and end points from all lane geometries</li>
+      <li><b>KD-Tree Indexing</b>: Build spatial index for efficient nearest-neighbor queries</li>
+      <li><b>Dangling Endpoint Detection</b>: Identify endpoints not touching other lanes (within 1m tolerance)</li>
+      <li><b>Gap Bridging</b>: Connect dangling endpoints to nearest neighbor within 50m tolerance</li>
+    </ol>
+    <h4>Component Connection</h4>
+    <p>For disconnected network components:</p>
+    <ol>
+      <li><b>Component Detection</b>: Find all connected components using graph algorithms</li>
+      <li><b>Minimum Spanning Tree Approach</b>: Connect isolated components by adding edges between closest nodes</li>
+      <li><b>Area Adjacency</b>: Areas within 800m are connected to ensure full coverage</li>
+    </ol>
+    <p style="background:#f5f5f5;padding:10px;border-radius:4px;font-size:0.9em">This connectivity fixing is essential because raw GIS data often has small gaps, coordinate mismatches, or isolated segments that would otherwise break shortest path calculations.</p>
 
     <h2 style="color:#34495e">Shortest Path Algorithm</h2>
     <p>We use <b>Dijkstra's algorithm</b> to compute shortest paths between all area centroids:</p>
@@ -1399,6 +1446,24 @@ setTimeout(()=>{{
     <ul style="font-size:0.9em">
       <li>de Berg, M., Cheong, O., van Kreveld, M., &amp; Overmars, M. (2008). <i>Computational Geometry: Algorithms and Applications</i> (3rd ed.). Springer. Chapter 5: Range Searching.</li>
     </ul>
+
+    <h2 style="color:#34495e">Close</h2>
+    <p>This methodology provides a systematic, data-driven approach to prioritizing bike lane investments. By combining:</p>
+    <ul>
+      <li><b>Gravity model physics</b>: Captures the fundamental relationship between accessibility, distance, and demand</li>
+      <li><b>Network analysis</b>: Ensures realistic routing through the actual road/bike lane network</li>
+      <li><b>Sensitivity analysis</b>: Tests robustness across different cyclist behavior assumptions (K) and trip distance preferences (&theta;)</li>
+      <li><b>Interactive visualization</b>: Enables planners to explore scenarios and understand trade-offs</li>
+    </ul>
+    <p>The rankings should be considered alongside other factors not modeled here, including:</p>
+    <ul>
+      <li>Construction costs and feasibility</li>
+      <li>Safety considerations and accident data</li>
+      <li>Equity and access for underserved neighborhoods</li>
+      <li>Integration with public transit</li>
+      <li>Political and community priorities</li>
+    </ul>
+    <p style="background:#e8f5e9;padding:15px;border-radius:4px;border-left:4px solid #27ae60"><b>The tool is designed to inform decision-making, not replace professional judgment.</b></p>
   </div>
 </div>
 </body>
