@@ -504,8 +504,8 @@ button:hover{{background:#2980b9}}
   <div class="cg">
     <label>Color areas by:</label>
     <div class="radio-group">
-      <label><input type="radio" name="accMode" value="origin" checked onchange="refresh()"> Origin (jobs reachable)</label>
-      <label><input type="radio" name="accMode" value="dest" onchange="refresh()"> Destination (people reaching)</label>
+      <label><input type="radio" name="accMode" value="origin" checked onchange="refresh()"> Origin (where people live)</label>
+      <label><input type="radio" name="accMode" value="dest" onchange="refresh()"> Destination (where jobs are)</label>
     </div>
   </div>
   <div class="cg">
@@ -534,7 +534,7 @@ button:hover{{background:#2980b9}}
       <strong>Area Accessibility</strong>
       <div class="legend-item" style="flex-direction:column;align-items:flex-start;gap:2px">
         <div style="display:flex;align-items:center;gap:4px">
-          <div style="width:80px;height:12px;background:linear-gradient(to right,rgb(255,0,100),rgb(128,128,100),rgb(0,255,100));border-radius:2px"></div>
+          <div style="width:80px;height:12px;background:linear-gradient(to right,#0000CD,#00CED1,#90EE90,#FFFF00,#FFA500,#DC143C);border-radius:2px"></div>
         </div>
         <div style="display:flex;justify-content:space-between;width:80px;font-size:0.75em">
           <span>Low</span><span>High</span>
@@ -802,9 +802,34 @@ function updateAreaColors(){{
     const aid=layer.feature.properties.area_id;
     const v=acc[aid]||0;
     const n=mx>mn?(v-mn)/(mx-mn):0;
-    const r=Math.round(255*(1-n)),g=Math.round(255*n);
-    layer.setStyle({{fillColor:"rgb("+r+","+g+",100)",fillOpacity:.4,weight:1,opacity:.5,color:"#2c3e50"}});
+    // Spectral colormap: blue (low) -> cyan -> green -> yellow -> orange -> red (high)
+    const color=spectralColor(n);
+    layer.setStyle({{fillColor:color,fillOpacity:.5,weight:1,opacity:.5,color:"#2c3e50"}});
   }});
+}}
+
+// Spectral colormap function matching reference image
+function spectralColor(t){{
+  // t goes from 0 (low) to 1 (high)
+  // Colors: blue -> cyan -> green -> yellow -> orange -> red
+  const stops=[
+    [0.0, 0,0,205],      // #0000CD blue
+    [0.2, 0,206,209],    // #00CED1 cyan
+    [0.4, 144,238,144],  // #90EE90 light green
+    [0.6, 255,255,0],    // #FFFF00 yellow
+    [0.8, 255,165,0],    // #FFA500 orange
+    [1.0, 220,20,60]     // #DC143C crimson
+  ];
+  // Find segment
+  let i=0;
+  while(i<stops.length-1 && stops[i+1][0]<t)i++;
+  if(i>=stops.length-1)return "rgb("+stops[stops.length-1][1]+","+stops[stops.length-1][2]+","+stops[stops.length-1][3]+")";
+  const t0=stops[i][0],t1=stops[i+1][0];
+  const f=(t-t0)/(t1-t0);
+  const r=Math.round(stops[i][1]+(stops[i+1][1]-stops[i][1])*f);
+  const g=Math.round(stops[i][2]+(stops[i+1][2]-stops[i][2])*f);
+  const b=Math.round(stops[i][3]+(stops[i+1][3]-stops[i][3])*f);
+  return "rgb("+r+","+g+","+b+")";
 }}
 
 function showInfo(lid){{
@@ -1188,8 +1213,8 @@ updateComputePanel();
     </ol>
 
     <h2 style="color:#34495e">Area Accessibility</h2>
-    <p><b>Origin Accessibility</b>: acc<sub>origin</sub>[i] = &Sigma;<sub>j</sub> E<sub>j</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup> (jobs reachable FROM area i)</p>
-    <p><b>Destination Accessibility</b>: acc<sub>dest</sub>[j] = &Sigma;<sub>i</sub> P<sub>i</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup> (people who can reach area j)</p>
+    <p><b>Origin Accessibility</b> (where people live): acc<sub>origin</sub>[i] = &Sigma;<sub>j</sub> E<sub>j</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup> (jobs reachable FROM area i - measures how good an area is for residents)</p>
+    <p><b>Destination Accessibility</b> (where jobs are): acc<sub>dest</sub>[j] = &Sigma;<sub>i</sub> P<sub>i</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup> (people who can reach area j - measures how good an area is for employers)</p>
 
     <h2 style="color:#34495e">References</h2>
     <p>The gravity model approach is based on Hansen's accessibility measure (1959), widely used in transportation planning.</p>

@@ -242,9 +242,10 @@ def create_heatmap(areas_gdf, N_values, bike_lanes, title, output_file, scenario
     connected = areas_plot[areas_plot['N'] > 0].copy()
     disconnected = areas_plot[areas_plot['N'] == 0].copy()
 
-    # Create custom colormap (blue -> cyan -> yellow -> orange -> red)
-    cmap_custom = LinearSegmentedColormap.from_list('byr',
-        ['#0000CD', '#1E90FF', '#00CED1', '#32CD32', '#FFFF00', '#FFA500', '#FF4500', '#DC143C'], N=256)
+    # Create custom colormap matching reference image (spectral: red -> orange -> yellow -> green -> cyan -> blue)
+    # Red = high accessibility, Blue = low accessibility
+    cmap_custom = LinearSegmentedColormap.from_list('spectral_acc',
+        ['#0000CD', '#1E90FF', '#00CED1', '#90EE90', '#FFFF00', '#FFA500', '#FF4500', '#DC143C'], N=256)
 
     # Plot disconnected areas in gray
     if len(disconnected) > 0:
