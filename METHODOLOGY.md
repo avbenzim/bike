@@ -64,19 +64,25 @@ A lane's improvement reflects how much it:
 
 ### Data Sources
 
-| Data | Source | Year |
-|------|--------|------|
-| **Statistical Areas** | Jerusalem Transportation Master Plan Team | 2025 projections |
-| **Population (pop_2025)** | Jerusalem Transportation Master Plan Team | 2025 projections |
-| **Employment (emp_2025)** | Jerusalem Transportation Master Plan Team | 2025 projections |
-| **Completed Bike Lanes** | Jerusalem Transportation Master Plan Team | Current |
-| **Under Construction Bike Lanes** | Jerusalem Transportation Master Plan Team | Current |
-| **Wishing List Bike Lanes** | The author | Proposed |
-| **Road Network** | OpenStreetMap via ISR.parquet | Current |
+| Data | Source |
+|------|--------|
+| **Statistical Areas** | Jerusalem Transportation Master Plan Team (2025 projections) |
+| **Population (pop_2025)** | Jerusalem Transportation Master Plan Team |
+| **Employment (emp_2025)** | Jerusalem Transportation Master Plan Team |
+| **Completed Bike Lanes** | Jerusalem Transportation Master Plan Team |
+| **Under Construction Bike Lanes** | Jerusalem Transportation Master Plan Team |
+| **Wishing List Bike Lanes** | The author |
+| **Road Network** | OpenStreetMap |
 
-- **Areas**: Statistical areas with population and employment projections for 2025 (Shapefile: `jer_areas.shp`)
-- **Bike Lanes**: Three KML files for completed, under construction, and wishing list lanes (provided by Transportation Master Plan Team)
-- **Roads**: Jerusalem road network extracted from OpenStreetMap (`jerusalem_roads.kml`), filtered to Jerusalem area with 1km buffer
+### Source Files
+
+| File | Description |
+|------|-------------|
+| `jer_areas.shp` | Statistical areas with population and employment data |
+| `bike_lanes_completed.kml` | Existing bike lanes |
+| `bike_lanes_construction.kml` | Lanes under construction |
+| `bike_lanes_wishing_list.kml` | Proposed future lanes |
+| `jerusalem_roads.kml` | Road network (filtered to Jerusalem with 1km buffer) |
 
 ### Graph Building
 1. Roads are converted to a graph with nodes at endpoints
@@ -139,7 +145,7 @@ This measures how many people can reach area j (e.g., how accessible is a workpl
 
 ## Interactive Map Features
 
-### Lane Selection
+### Wishing Lane Selection
 - Click lanes on map or sidebar to select/deselect
 - Selected lanes are highlighted in purple
 - Total estimated improvement shown in header
@@ -149,11 +155,27 @@ This measures how many people can reach area j (e.g., how accessible is a workpl
 - Green = High accessibility
 - Toggle between origin and destination views
 
-### Shortest Path
-- Select origin and destination areas
+### Shortest Path Finder
+- Select origin and destination areas from dropdowns
+- Or click directly on the map to choose custom points
 - Path computed using Dijkstra's algorithm with K penalty
 - Blue segments = bike lanes, Orange segments = roads
 - Statistics show distance breakdown
+
+### Custom Lane Drawing
+Users can draw their own proposed bike lanes:
+- Click "Draw New Lane" to start drawing mode
+- Click on map to add points (automatically snaps to nearby road nodes within 15m)
+- Double-click or press "Finish" to complete the lane
+- Custom lanes integrate with the network for path finding
+- Export lanes as GeoJSON for sharing or import previously saved lanes
+
+### Lane Snapping
+When drawing custom lanes:
+- Points automatically snap to nearby road network nodes (15m threshold)
+- Points also snap to existing custom lane endpoints
+- Visual feedback shows when snapping occurs (green markers)
+- Ensures drawn lanes properly connect to the road network
 
 ### Parameters
 - Adjust K and θ to see how rankings change
@@ -162,23 +184,19 @@ This measures how many people can reach area j (e.g., how accessible is a workpl
   - Low θ (more negative): Lanes serving local trips
   - High θ (less negative): Lanes enabling longer commutes
 
-## Files
+## Output Files
 
 | File | Description |
 |------|-------------|
-| `rank_wishing_lanes.py` | Core ranking algorithm |
-| `sensitivity_analysis.py` | Runs ranking for multiple K/θ combinations |
-| `generate_interactive_map.py` | Generates the interactive HTML |
+| `generate_interactive_map.py` | Script to generate the interactive HTML |
 | `bike_analysis.html` | Self-contained interactive visualization |
-| `sensitivity_analysis.csv` | Results for all K/θ combinations |
-| `wishing_list_ranking.csv` | Detailed ranking for default parameters |
 
 ## Technical Notes
 
 ### Performance
 - Network has ~8,000 nodes and ~11,000 edges
 - Each accessibility calculation requires ~100 Dijkstra runs (one per area)
-- Full sensitivity analysis (25 parameter combinations × 24 lanes) takes ~30 minutes
+- All calculations run client-side in the browser
 
 ### Assumptions
 - Straight-line connections between lane endpoints and nearest road nodes
@@ -190,4 +208,3 @@ This measures how many people can reach area j (e.g., how accessible is a workpl
 
 - Donaldson, D., & Hornbeck, R. (2016). Railroads and American economic growth: A "market access" approach. *The Quarterly Journal of Economics*, 131(2), 799-858.
 - Tsivanidis, N. (2024). Evaluating the Impact of Urban Transit Infrastructure: Evidence from Bogotá's TransMilenio. *American Economic Review*, 116(2), 418-463.
-
