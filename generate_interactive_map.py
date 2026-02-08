@@ -822,6 +822,8 @@ areasLyr=L.geoJSON(AREAS,{{
     const p=f.properties;
     const aid=p.area_id;
     layer.on('click',function(e){{
+      // Don't show popup when drawing a lane
+      if(isDrawing)return;
       const name=AREA_NAMES[aid]||"Area "+aid;
       const mode=getAccMode();
       let html="<b>"+name+"</b><br>"+
@@ -854,13 +856,25 @@ areasLyr=L.geoJSON(AREAS,{{
 // Completed (dark green)
 if(COMPLETED.features.length)
   L.geoJSON(COMPLETED,{{style:{{color:"#1B5E20",weight:3,opacity:.8}},
-    onEachFeature:(f,l)=>l.bindPopup("<b>Existing:</b> "+(f.properties.Name||""))
+    onEachFeature:(f,l)=>{{
+      const content="<b>Existing:</b> "+(f.properties.Name||"");
+      l.on('click',function(e){{
+        if(isDrawing)return;
+        L.popup().setLatLng(e.latlng).setContent(content).openOn(map);
+      }});
+    }}
   }}).addTo(map);
 
 // Construction (light green)
 if(CONSTRUCTION.features.length)
   L.geoJSON(CONSTRUCTION,{{style:{{color:"#81C784",weight:3,opacity:.8}},
-    onEachFeature:(f,l)=>l.bindPopup("<b>Under construction:</b> "+(f.properties.Name||""))
+    onEachFeature:(f,l)=>{{
+      const content="<b>Under construction:</b> "+(f.properties.Name||"");
+      l.on('click',function(e){{
+        if(isDrawing)return;
+        L.popup().setLatLng(e.latlng).setContent(content).openOn(map);
+      }});
+    }}
   }}).addTo(map);
 
 // Wishing list (orange, purple when selected)
@@ -871,7 +885,11 @@ wishLyr=L.geoJSON(WISHING,{{
   }},
   onEachFeature:(f,layer)=>{{
     const lid=f.properties.lane_id;
-    layer.on("click",()=>{{sel.has(lid)?sel.delete(lid):sel.add(lid);refresh();}});
+    layer.on("click",()=>{{
+      // Don't toggle selection when drawing a lane
+      if(isDrawing)return;
+      sel.has(lid)?sel.delete(lid):sel.add(lid);refresh();
+    }});
     layer.on("mouseover",()=>showInfo(lid));
     layer.on("mouseout",hideInfo);
   }}
@@ -1446,36 +1464,49 @@ function calcLaneLength(coords){{
 // Find road edges near a user-drawn lane (similar to wishing lanes matching)
 function findCoveredEdges(coords){{
   const covered=new Set();
-  const BUFFER=0.00015; // ~15m in degrees at Jerusalem latitude
+  const BUFFER_METERS=25; // 25m buffer for matching
 
-  // For each point pair in the user lane
-  for(let i=0;i<coords.length-1;i++){{
-    const p1=coords[i],p2=coords[i+1];
-    const minLat=Math.min(p1[0],p2[0])-BUFFER;
-    const maxLat=Math.max(p1[0],p2[0])+BUFFER;
-    const minLon=Math.min(p1[1],p2[1])-BUFFER;
-    const maxLon=Math.max(p1[1],p2[1])+BUFFER;
+  // For each edge in the network, check if it's close to the user lane
+  for(const e of EDGES){{
+    const n1=NODES[String(e[0])],n2=NODES[String(e[1])];
+    if(!n1||!n2)continue;
 
-    // Check each edge to see if it's close to this segment
-    for(const e of EDGES){{
-      const n1=NODES[String(e[0])],n2=NODES[String(e[1])];
-      if(!n1||!n2)continue;
+    // Edge endpoints in lat/lon (NODES is [lon,lat])
+    const e1Lat=n1[1],e1Lon=n1[0];
+    const e2Lat=n2[1],e2Lon=n2[0];
+    const midLat=(e1Lat+e2Lat)/2,midLon=(e1Lon+e2Lon)/2;
 
-      // Check if edge endpoints are within bounding box
-      const inBox=(n1[1]>=minLat&&n1[1]<=maxLat&&n1[0]>=minLon&&n1[0]<=maxLon)||
-                  (n2[1]>=minLat&&n2[1]<=maxLat&&n2[0]>=minLon&&n2[0]<=maxLon);
-      if(!inBox)continue;
+    // Check if edge midpoint or endpoints are close to any user lane segment
+    let isClose=false;
+    for(let i=0;i<coords.length-1&&!isClose;i++){{
+      const p1=coords[i],p2=coords[i+1]; // [lat,lng]
 
-      // Calculate distance from edge midpoint to user lane segment
-      const midLat=(n1[1]+n2[1])/2,midLon=(n1[0]+n2[0])/2;
-      const d=pointToSegmentDist(midLat,midLon,p1[0],p1[1],p2[0],p2[1]);
+      // Distance from edge midpoint to user segment
+      const dMid=pointToSegmentDist(midLat,midLon,p1[0],p1[1],p2[0],p2[1]);
+      if(dMid<BUFFER_METERS){{isClose=true;break;}}
 
-      if(d<BUFFER*111000){{ // Convert to ~meters
-        const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
-        covered.add(key);
-      }}
+      // Distance from edge endpoint 1 to user segment
+      const d1=pointToSegmentDist(e1Lat,e1Lon,p1[0],p1[1],p2[0],p2[1]);
+      if(d1<BUFFER_METERS){{isClose=true;break;}}
+
+      // Distance from edge endpoint 2 to user segment
+      const d2=pointToSegmentDist(e2Lat,e2Lon,p1[0],p1[1],p2[0],p2[1]);
+      if(d2<BUFFER_METERS){{isClose=true;break;}}
+
+      // Also check reverse: user lane points close to the edge
+      const up1=pointToSegmentDist(p1[0],p1[1],e1Lat,e1Lon,e2Lat,e2Lon);
+      if(up1<BUFFER_METERS){{isClose=true;break;}}
+      const up2=pointToSegmentDist(p2[0],p2[1],e1Lat,e1Lon,e2Lat,e2Lon);
+      if(up2<BUFFER_METERS){{isClose=true;break;}}
+    }}
+
+    if(isClose){{
+      const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
+      covered.add(key);
     }}
   }}
+
+  console.log('findCoveredEdges: found '+covered.size+' edges for lane with '+coords.length+' points');
 
   // Convert to array of [nodeA,nodeB] pairs
   const result=[];
@@ -1796,6 +1827,8 @@ dijkstra=function(origIdx,destIdx,k){{
       userEdgeSet.add(key);
     }}
   }}
+
+  console.log('dijkstra: userEdgeSet.size='+userEdgeSet.size+', userLanes.length='+userLanes.length);
 
   // If no user lanes, use original
   if(userEdgeSet.size===0){{

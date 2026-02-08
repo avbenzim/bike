@@ -54,19 +54,19 @@ button:hover{background:#2980b9}
 .path-stats table{width:100%;border-collapse:collapse;font-size:.9em}
 .path-stats td{padding:3px 6px}
 .path-stats td:last-child{text-align:right;font-weight:700}
-.user-lane{padding:8px;margin:4px 0;background:#fff;border-radius:4px;border:2px solid #6a1b9a;display:flex;flex-direction:column;gap:4px}
-.user-lane.active{background:#f3e5f5;border-color:#4a148c}
+.user-lane{padding:8px;margin:4px 0;background:#fff;border-radius:4px;border:2px solid #e91e63;display:flex;flex-direction:column;gap:4px}
+.user-lane.active{background:#fce4ec;border-color:#c2185b}
 .user-lane .lane-header{display:flex;justify-content:space-between;align-items:center}
-.user-lane .lane-name{font-weight:700;color:#4a148c;flex:1}
+.user-lane .lane-name{font-weight:700;color:#c2185b;flex:1}
 .user-lane .lane-length{color:#666;font-size:.85em;margin-right:8px}
 .user-lane .lane-actions{display:flex;gap:4px}
-.user-lane .lane-actions button{padding:3px 8px;font-size:11px;background:#6a1b9a;color:#fff;border:none;border-radius:3px;cursor:pointer}
-.user-lane .lane-actions button:hover{background:#4a148c}
+.user-lane .lane-actions button{padding:3px 8px;font-size:11px;background:#e91e63;color:#fff;border:none;border-radius:3px;cursor:pointer}
+.user-lane .lane-actions button:hover{background:#c2185b}
 .user-lane .lane-actions button.del{background:#e74c3c}
 .user-lane .lane-actions button.del:hover{background:#c0392b}
-.draw-controls{background:#f3e5f5;padding:10px;border-radius:5px;margin-bottom:10px;border:1px solid #6a1b9a}
+.draw-controls{background:#fce4ec;padding:10px;border-radius:5px;margin-bottom:10px;border:1px solid #e91e63}
 .draw-controls button{margin:4px 2px}
-.draw-note{background:#e1bee7;padding:8px;border-radius:4px;margin-bottom:10px;font-size:.85em;border-left:3px solid #6a1b9a}
+.draw-note{background:#f8bbd9;padding:8px;border-radius:4px;margin-bottom:10px;font-size:.85em;border-left:3px solid #e91e63}
 .impact-box{background:#e8f5e9;padding:10px;border-radius:5px;margin-top:10px;border:1px solid #4caf50}
 .impact-box.negative{background:#ffebee;border-color:#f44336}
 .impact-box h4{margin:0 0 8px;color:#2e7d32}
@@ -150,7 +150,7 @@ button:hover{background:#2980b9}
       <div class="legend-item"><div class="legend-line" style="background:#81C784"></div>Under construction</div>
       <div class="legend-item"><div class="legend-line" style="background:#FF9800"></div>Wishing list</div>
       <div class="legend-item"><div class="legend-line" style="background:#9b59b6;height:6px"></div>Selected lane</div>
-      <div class="legend-item"><div class="legend-line" style="background:#6a1b9a;height:6px"></div>User-drawn lane</div>
+      <div class="legend-item"><div class="legend-line" style="background:#E91E63;height:6px"></div>User-drawn lane</div>
       <div class="legend-item"><div class="legend-line" style="background:#1565C0;height:6px"></div>Path on bike lane</div>
       <div class="legend-item"><div class="legend-line" style="background:#E65100;height:6px"></div>Path on road</div>
       <hr style="margin:8px 0;border:none;border-top:1px solid #ccc">
@@ -191,7 +191,7 @@ button:hover{background:#2980b9}
         <button onclick="finishDrawing()" id="finishBtn" style="display:none;background:#27ae60">Finish Lane</button>
       </div>
       <div id="drawingStatus" style="margin:8px 0;font-size:.85em;color:#666"></div>
-      <h4 style="margin:12px 0 8px;color:#4a148c">Your Drawn Lanes (<span id="userLaneCount">0</span>)</h4>
+      <h4 style="margin:12px 0 8px;color:#c2185b">Your Drawn Lanes (<span id="userLaneCount">0</span>)</h4>
       <div id="userLaneList"></div>
       <div id="userLaneImpact"></div>
       <div class="export-section">
@@ -213,38 +213,13 @@ button:hover{background:#2980b9}
     </div>
     <div id="paths" class="tc">
       <h3>Find Shortest Path</h3>
-      <div class="note">Compute shortest path between areas or custom points using current network (with selected lanes).</div>
+      <div class="note">Compute shortest path between areas using current network (with selected lanes).</div>
       <div class="path-ctl">
-        <div style="margin-bottom:10px">
-          <label style="margin-right:15px"><input type="radio" name="pathMode" value="area" checked onchange="togglePathMode()"> By area</label>
-          <label><input type="radio" name="pathMode" value="point" onchange="togglePathMode()"> By map point</label>
-        </div>
-        <div id="areaPathMode">
-          <label>Origin area:</label>
-          <input type="text" id="origInput" list="areaList" placeholder="Search area..." style="width:100%;padding:6px;margin-bottom:8px;border:1px solid #ddd;border-radius:4px">
-          <label>Destination area:</label>
-          <input type="text" id="destInput" list="areaList" placeholder="Search area..." style="width:100%;padding:6px;margin-bottom:8px;border:1px solid #ddd;border-radius:4px">
-          <datalist id="areaList"></datalist>
-        </div>
-        <div id="pointPathMode" style="display:none">
-          <div style="margin-bottom:8px">
-            <label>Origin point:</label>
-            <div style="display:flex;gap:5px;align-items:center">
-              <span id="origPointLabel" style="flex:1;padding:6px;background:#f5f5f5;border:1px solid #ddd;border-radius:4px;font-size:.85em;color:#666">Not set - click Pick</span>
-              <button onclick="startPickingPoint('origin')" id="pickOrigBtn" style="padding:6px 10px">Pick</button>
-              <button onclick="clearPathPoint('origin')" style="padding:6px 10px">Clear</button>
-            </div>
-          </div>
-          <div style="margin-bottom:8px">
-            <label>Destination point:</label>
-            <div style="display:flex;gap:5px;align-items:center">
-              <span id="destPointLabel" style="flex:1;padding:6px;background:#f5f5f5;border:1px solid #ddd;border-radius:4px;font-size:.85em;color:#666">Not set - click Pick</span>
-              <button onclick="startPickingPoint('dest')" id="pickDestBtn" style="padding:6px 10px">Pick</button>
-              <button onclick="clearPathPoint('dest')" style="padding:6px 10px">Clear</button>
-            </div>
-          </div>
-          <div id="pickingStatus" style="font-size:.85em;color:#6a1b9a;margin-bottom:8px"></div>
-        </div>
+        <label>Origin area:</label>
+        <input type="text" id="origInput" list="areaList" placeholder="Search area..." style="width:100%;padding:6px;margin-bottom:8px;border:1px solid #ddd;border-radius:4px">
+        <label>Destination area:</label>
+        <input type="text" id="destInput" list="areaList" placeholder="Search area..." style="width:100%;padding:6px;margin-bottom:8px;border:1px solid #ddd;border-radius:4px">
+        <datalist id="areaList"></datalist>
         <button onclick="showPath()">Show path</button>
       </div>
       <div id="pathInfo"></div>
@@ -375,6 +350,8 @@ areasLyr=L.geoJSON(AREAS,{
     const p=f.properties;
     const aid=p.area_id;
     layer.on('click',function(e){
+      // Don't show popup when drawing a lane
+      if(isDrawing)return;
       const name=AREA_NAMES[aid]||"Area "+aid;
       const mode=getAccMode();
       let html="<b>"+name+"</b><br>"+
@@ -407,13 +384,25 @@ areasLyr=L.geoJSON(AREAS,{
 // Completed (dark green)
 if(COMPLETED.features.length)
   L.geoJSON(COMPLETED,{style:{color:"#1B5E20",weight:3,opacity:.8},
-    onEachFeature:(f,l)=>l.bindPopup("<b>Existing:</b> "+(f.properties.Name||""))
+    onEachFeature:(f,l)=>{
+      const content="<b>Existing:</b> "+(f.properties.Name||"");
+      l.on('click',function(e){
+        if(isDrawing)return;
+        L.popup().setLatLng(e.latlng).setContent(content).openOn(map);
+      });
+    }
   }).addTo(map);
 
 // Construction (light green)
 if(CONSTRUCTION.features.length)
   L.geoJSON(CONSTRUCTION,{style:{color:"#81C784",weight:3,opacity:.8},
-    onEachFeature:(f,l)=>l.bindPopup("<b>Under construction:</b> "+(f.properties.Name||""))
+    onEachFeature:(f,l)=>{
+      const content="<b>Under construction:</b> "+(f.properties.Name||"");
+      l.on('click',function(e){
+        if(isDrawing)return;
+        L.popup().setLatLng(e.latlng).setContent(content).openOn(map);
+      });
+    }
   }).addTo(map);
 
 // Wishing list (orange, purple when selected)
@@ -424,7 +413,11 @@ wishLyr=L.geoJSON(WISHING,{
   },
   onEachFeature:(f,layer)=>{
     const lid=f.properties.lane_id;
-    layer.on("click",()=>{sel.has(lid)?sel.delete(lid):sel.add(lid);refresh();});
+    layer.on("click",()=>{
+      // Don't toggle selection when drawing a lane
+      if(isDrawing)return;
+      sel.has(lid)?sel.delete(lid):sel.add(lid);refresh();
+    });
     layer.on("mouseover",()=>showInfo(lid));
     layer.on("mouseout",hideInfo);
   }
@@ -609,135 +602,12 @@ function showTab(id,btn){
 }
 
 // === PATH FINDING ===
-
-// State for custom path points
-let pathOriginPoint=null;  // {lat, lng, nodeId}
-let pathDestPoint=null;    // {lat, lng, nodeId}
-let pathOriginMarker=null;
-let pathDestMarker=null;
-let pickingPointFor=null;  // 'origin' or 'dest'
-
-function togglePathMode(){
-  const mode=document.querySelector('input[name="pathMode"]:checked').value;
-  document.getElementById('areaPathMode').style.display=mode==='area'?'block':'none';
-  document.getElementById('pointPathMode').style.display=mode==='point'?'block':'none';
-  // Clear any picking state
-  if(pickingPointFor){
-    map.off('click',onPathPointClick);
-    map.getContainer().style.cursor='';
-    pickingPointFor=null;
-    document.getElementById('pickingStatus').innerHTML='';
-  }
-}
-
-function startPickingPoint(which){
-  // Cancel any previous picking
-  if(pickingPointFor){
-    map.off('click',onPathPointClick);
-  }
-  pickingPointFor=which;
-  map.getContainer().style.cursor='crosshair';
-  document.getElementById('pickingStatus').innerHTML='<b>Click on the map to set '+(which==='origin'?'origin':'destination')+' point...</b>';
-  map.on('click',onPathPointClick);
-}
-
-function onPathPointClick(e){
-  if(!pickingPointFor)return;
-  
-  const lat=e.latlng.lat,lng=e.latlng.lng;
-  
-  // Find nearest network node (same as how area centers are connected)
-  let nearestNode=null,nearestDist=Infinity;
-  for(const[nid,c]of Object.entries(NODES)){
-    // NODES is [lon, lat]
-    const d=haversineDistance(lat,lng,c[1],c[0]);
-    if(d<nearestDist){
-      nearestDist=d;
-      nearestNode=nid;
-    }
-  }
-  
-  if(!nearestNode){
-    alert('Could not find a nearby network node.');
-    return;
-  }
-  
-  const nodeCoord=NODES[nearestNode];
-  const point={lat:lat,lng:lng,nodeId:nearestNode,nodeLat:nodeCoord[1],nodeLon:nodeCoord[0],dist:nearestDist};
-  
-  if(pickingPointFor==='origin'){
-    pathOriginPoint=point;
-    if(pathOriginMarker)map.removeLayer(pathOriginMarker);
-    pathOriginMarker=L.marker([lat,lng],{
-      icon:L.divIcon({className:'',html:'<div style="background:#27ae60;width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>',iconSize:[14,14],iconAnchor:[7,7]})
-    }).addTo(map);
-    pathOriginMarker.bindPopup('Origin: connects to node '+nearestNode+' ('+(nearestDist).toFixed(0)+'m away)');
-    document.getElementById('origPointLabel').innerHTML='<span style="color:#27ae60">Set</span> (connects '+nearestDist.toFixed(0)+'m to network)';
-  }else{
-    pathDestPoint=point;
-    if(pathDestMarker)map.removeLayer(pathDestMarker);
-    pathDestMarker=L.marker([lat,lng],{
-      icon:L.divIcon({className:'',html:'<div style="background:#e74c3c;width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>',iconSize:[14,14],iconAnchor:[7,7]})
-    }).addTo(map);
-    pathDestMarker.bindPopup('Destination: connects to node '+nearestNode+' ('+(nearestDist).toFixed(0)+'m away)');
-    document.getElementById('destPointLabel').innerHTML='<span style="color:#e74c3c">Set</span> (connects '+nearestDist.toFixed(0)+'m to network)';
-  }
-  
-  // Reset picking state
-  map.off('click',onPathPointClick);
-  map.getContainer().style.cursor='';
-  document.getElementById('pickingStatus').innerHTML='';
-  pickingPointFor=null;
-}
-
-function clearPathPoint(which){
-  if(which==='origin'){
-    pathOriginPoint=null;
-    if(pathOriginMarker){map.removeLayer(pathOriginMarker);pathOriginMarker=null;}
-    document.getElementById('origPointLabel').innerHTML='Not set - click Pick';
-  }else{
-    pathDestPoint=null;
-    if(pathDestMarker){map.removeLayer(pathDestMarker);pathDestMarker=null;}
-    document.getElementById('destPointLabel').innerHTML='Not set - click Pick';
-  }
-}
-
 function showPath(){
-  const mode=document.querySelector('input[name="pathMode"]:checked').value;
-  
-  let oNode,dNode,origCoord,destCoord;
-  
-  if(mode==='area'){
-    const origName=document.getElementById("origInput").value;
-    const destName=document.getElementById("destInput").value;
-    const oi=areaNameToId[origName];
-    const di=areaNameToId[destName];
-    if(oi===undefined||di===undefined){alert("Please select valid origin and destination areas.");return;}
-    
-    // Find nearest nodes to area centroids (original behavior)
-    const oc=CENTROIDS[oi],dc=CENTROIDS[di];
-    let oD=Infinity,dD=Infinity;
-    for(const[nid,c]of Object.entries(NODES)){
-      const d1=(c[0]-oc[0])**2+(c[1]-oc[1])**2;
-      const d2=(c[0]-dc[0])**2+(c[1]-dc[1])**2;
-      if(d1<oD){oD=d1;oNode=nid;}
-      if(d2<dD){dD=d2;dNode=nid;}
-    }
-    origCoord=oc;
-    destCoord=dc;
-  }else{
-    // Point mode
-    if(!pathOriginPoint||!pathDestPoint){
-      alert("Please set both origin and destination points on the map.");
-      return;
-    }
-    oNode=pathOriginPoint.nodeId;
-    dNode=pathDestPoint.nodeId;
-    origCoord=[pathOriginPoint.lng,pathOriginPoint.lat];
-    destCoord=[pathDestPoint.lng,pathDestPoint.lat];
-  }
-  
-  if(!oNode||!dNode){alert("Could not find network nodes for the selected points.");return;}
+  const origName=document.getElementById("origInput").value;
+  const destName=document.getElementById("destInput").value;
+  const oi=areaNameToId[origName];
+  const di=areaNameToId[destName];
+  if(oi===undefined||di===undefined){alert("Please select valid origin and destination areas.");return;}
   if(pathLyrGroup)map.removeLayer(pathLyrGroup);
 
   const k=currentK;
@@ -745,7 +615,7 @@ function showPath(){
 
   setTimeout(()=>{
     try{
-    const result=dijkstraNodes(oNode,dNode,k,origCoord,destCoord);
+    const result=dijkstra(oi,di,k);
     if(result&&result.segments.length>0){
       // Draw segments with different colors
       pathLyrGroup=L.featureGroup();
@@ -759,10 +629,8 @@ function showPath(){
           // Regular segment (straight line between nodes)
           coords=[[seg.from[1],seg.from[0]],[seg.to[1],seg.to[0]]];
         }
-        const color=seg.connector?"#9b59b6":(seg.bike?"#1565C0":"#E65100");
-        const opts={color:color,weight:6,opacity:.85};
-        if(seg.connector)opts.dashArray='8,8';
-        const line=L.polyline(coords,opts);
+        const color=seg.bike?"#1565C0":"#E65100";
+        const line=L.polyline(coords,{color:color,weight:6,opacity:.85});
         pathLyrGroup.addLayer(line);
         if(seg.bike)totalLaneDist+=seg.len;
         else totalRoadDist+=seg.len;
@@ -812,104 +680,6 @@ function getEdgeLookup(){
     edgeLookup[b+"_"+a]=info;
   }
   return edgeLookup;
-}
-
-// Dijkstra with node IDs (for custom point paths)
-function dijkstraNodes(oNode,dNode,k,origCoord,destCoord){
-  if(!oNode||!dNode)return null;
-
-  // Build set of edges covered by selected wishing lanes
-  const wishingEdgeSet=new Set();
-  for(const lid of sel){
-    const edges=WISHING_EDGES[lid]||[];
-    for(const e of edges){
-      const a=Math.min(e[0],e[1]),b=Math.max(e[0],e[1]);
-      wishingEdgeSet.add(a+'_'+b);
-    }
-  }
-
-  // Also include edges from active user lanes
-  for(const lane of userLanes){
-    if(!lane.active)continue;
-    for(const e of lane.edges){
-      const a=Math.min(e[0],e[1]),b=Math.max(e[0],e[1]);
-      wishingEdgeSet.add(a+'_'+b);
-    }
-  }
-
-  // Build adjacency with edge info
-  const adj={};
-  for(const e of EDGES){
-    const len=e[2];
-    let bike=!!e[3];
-    const a=String(e[0]),b=String(e[1]);
-    const edgeKey=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
-    if(wishingEdgeSet.has(edgeKey))bike=true;
-    const w=bike?len:len*k;
-    if(!adj[a])adj[a]=[];
-    if(!adj[b])adj[b]=[];
-    adj[a].push({n:b,w:w,len:len,bike:bike,eKey:edgeKey});
-    adj[b].push({n:a,w:w,len:len,bike:bike,eKey:edgeKey});
-  }
-
-  const dist={},prev={},prevEdge={},visited=new Set();
-  dist[oNode]=0;
-  let pq=[[0,oNode]];
-
-  while(pq.length){
-    const[cd,cur]=pq.shift();
-    if(visited.has(cur))continue;
-    visited.add(cur);
-    if(cur===dNode)break;
-    for(const{n,w,len,bike,eKey}of(adj[cur]||[])){
-      if(visited.has(n))continue;
-      const nd=cd+w;
-      if(dist[n]===undefined||nd<dist[n]){
-        dist[n]=nd;prev[n]=cur;prevEdge[n]={len:len,bike:bike,eKey:eKey};
-        let ins=pq.findIndex(x=>x[0]>nd);
-        if(ins<0)ins=pq.length;
-        pq.splice(ins,0,[nd,n]);
-      }
-    }
-  }
-
-  if(dist[dNode]===undefined)return null;
-
-  // Reconstruct path as segments with edge info
-  const segments=[];
-  let c=dNode;
-  while(prev[c]!==undefined){
-    const p=prev[c];
-    const e=prevEdge[c];
-    const geom=EDGE_GEOMS[e.eKey];
-    if(geom&&geom.length>=2){
-      const fromNode=NODES[p],toNode=NODES[c];
-      const g0=geom[0],gN=geom[geom.length-1];
-      const d0=Math.abs(g0[0]-fromNode[0])+Math.abs(g0[1]-fromNode[1]);
-      const dN=Math.abs(gN[0]-fromNode[0])+Math.abs(gN[1]-fromNode[1]);
-      const coords=(d0<=dN)?geom:geom.slice().reverse();
-      segments.unshift({geom:coords,len:e.len,bike:e.bike});
-    }else{
-      segments.unshift({from:NODES[p],to:NODES[c],len:e.len,bike:e.bike});
-    }
-    c=p;
-  }
-
-  // Add connector from origin point to first network node if different
-  const oNodeCoord=NODES[oNode];
-  if(origCoord&&(Math.abs(origCoord[0]-oNodeCoord[0])>0.00001||Math.abs(origCoord[1]-oNodeCoord[1])>0.00001)){
-    const connDist=haversineDistance(origCoord[1],origCoord[0],oNodeCoord[1],oNodeCoord[0]);
-    segments.unshift({from:origCoord,to:oNodeCoord,len:connDist,bike:false,connector:true});
-  }
-  
-  // Add connector from last network node to destination point if different
-  const dNodeCoord=NODES[dNode];
-  if(destCoord&&(Math.abs(destCoord[0]-dNodeCoord[0])>0.00001||Math.abs(destCoord[1]-dNodeCoord[1])>0.00001)){
-    const connDist=haversineDistance(dNodeCoord[1],dNodeCoord[0],destCoord[1],destCoord[0]);
-    segments.push({from:dNodeCoord,to:destCoord,len:connDist,bike:false,connector:true});
-  }
-
-  return{segments:segments};
 }
 
 function dijkstra(origIdx,destIdx,k){
@@ -1219,143 +989,52 @@ function calcLaneLength(coords){
   return total;
 }
 
-// Snap threshold in meters (same as road edge matching)
-const SNAP_THRESHOLD=15;
-
-// Find the nearest snap point (network node or user lane point) within threshold
-// Returns {lat, lng, snapped: true, type: 'node'|'lane'} or {lat, lng, snapped: false}
-function findNearestSnapPoint(lat,lng){
-  let bestDist=Infinity;
-  let bestPoint=null;
-  let bestType=null;
-
-  // Check all network nodes
-  for(const nodeId in NODES){
-    const node=NODES[nodeId];
-    // NODES stores [lon, lat]
-    const nodeLat=node[1],nodeLon=node[0];
-    const d=haversineDistance(lat,lng,nodeLat,nodeLon);
-    if(d<bestDist){
-      bestDist=d;
-      bestPoint={lat:nodeLat,lng:nodeLon};
-      bestType='node';
-    }
-  }
-
-  // Check all points from existing user lanes
-  for(const lane of userLanes){
-    for(const coord of lane.coords){
-      // userLanes coords are [lat, lng]
-      const d=haversineDistance(lat,lng,coord[0],coord[1]);
-      if(d<bestDist){
-        bestDist=d;
-        bestPoint={lat:coord[0],lng:coord[1]};
-        bestType='lane';
-      }
-    }
-  }
-
-  // Return snapped point if within threshold
-  if(bestDist<=SNAP_THRESHOLD&&bestPoint){
-    return{lat:bestPoint.lat,lng:bestPoint.lng,snapped:true,type:bestType};
-  }
-  return{lat:lat,lng:lng,snapped:false};
-}
-
-// Project a point onto a line segment, returns {t, dist} where t is position along segment [0,1]
-function projectPointToSegment(px,py,x1,y1,x2,y2){
-  const dx=x2-x1,dy=y2-y1;
-  if(dx===0&&dy===0)return{t:0,dist:haversineDistance(px,py,x1,y1)};
-  const t=Math.max(0,Math.min(1,((px-x1)*dx+(py-y1)*dy)/(dx*dx+dy*dy)));
-  const projX=x1+t*dx,projY=y1+t*dy;
-  return{t:t,dist:haversineDistance(px,py,projX,projY)};
-}
-
-// Insert connection points where the lane passes near road nodes or other lane points
-// This ensures the lane actually connects to the road network at intersections
-function insertConnectionPoints(coords){
-  const result=[];
-  const threshold=SNAP_THRESHOLD;
-
-  for(let i=0;i<coords.length-1;i++){
-    const p1=coords[i],p2=coords[i+1];
-    result.push(p1);
-
-    // Collect nearby points to insert along this segment
-    const toInsert=[];
-
-    // Check network nodes
-    for(const nodeId in NODES){
-      const node=NODES[nodeId];
-      const nodeLat=node[1],nodeLon=node[0];
-      const proj=projectPointToSegment(nodeLat,nodeLon,p1[0],p1[1],p2[0],p2[1]);
-
-      // Only insert if close enough and not at segment endpoints (t between 0.05 and 0.95)
-      if(proj.dist<=threshold&&proj.t>0.05&&proj.t<0.95){
-        toInsert.push({t:proj.t,lat:nodeLat,lng:nodeLon,type:'node'});
-      }
-    }
-
-    // Check existing user lane points
-    for(const lane of userLanes){
-      for(const coord of lane.coords){
-        const proj=projectPointToSegment(coord[0],coord[1],p1[0],p1[1],p2[0],p2[1]);
-        if(proj.dist<=threshold&&proj.t>0.05&&proj.t<0.95){
-          toInsert.push({t:proj.t,lat:coord[0],lng:coord[1],type:'lane'});
-        }
-      }
-    }
-
-    // Sort by t and insert in order, removing duplicates (within 5m)
-    toInsert.sort((a,b)=>a.t-b.t);
-    let lastInserted=null;
-    for(const pt of toInsert){
-      if(lastInserted&&haversineDistance(pt.lat,pt.lng,lastInserted[0],lastInserted[1])<5){
-        continue; // Skip points too close to each other
-      }
-      result.push([pt.lat,pt.lng]);
-      lastInserted=[pt.lat,pt.lng];
-    }
-  }
-
-  // Add the last point
-  result.push(coords[coords.length-1]);
-  return result;
-}
-
 // Find road edges near a user-drawn lane (similar to wishing lanes matching)
 function findCoveredEdges(coords){
   const covered=new Set();
-  const BUFFER=0.00015; // ~15m in degrees at Jerusalem latitude
+  const BUFFER_METERS=25; // 25m buffer for matching
 
-  // For each point pair in the user lane
-  for(let i=0;i<coords.length-1;i++){
-    const p1=coords[i],p2=coords[i+1];
-    const minLat=Math.min(p1[0],p2[0])-BUFFER;
-    const maxLat=Math.max(p1[0],p2[0])+BUFFER;
-    const minLon=Math.min(p1[1],p2[1])-BUFFER;
-    const maxLon=Math.max(p1[1],p2[1])+BUFFER;
+  // For each edge in the network, check if it's close to the user lane
+  for(const e of EDGES){
+    const n1=NODES[String(e[0])],n2=NODES[String(e[1])];
+    if(!n1||!n2)continue;
 
-    // Check each edge to see if it's close to this segment
-    for(const e of EDGES){
-      const n1=NODES[String(e[0])],n2=NODES[String(e[1])];
-      if(!n1||!n2)continue;
+    // Edge endpoints in lat/lon (NODES is [lon,lat])
+    const e1Lat=n1[1],e1Lon=n1[0];
+    const e2Lat=n2[1],e2Lon=n2[0];
+    const midLat=(e1Lat+e2Lat)/2,midLon=(e1Lon+e2Lon)/2;
 
-      // Check if edge endpoints are within bounding box
-      const inBox=(n1[1]>=minLat&&n1[1]<=maxLat&&n1[0]>=minLon&&n1[0]<=maxLon)||
-                  (n2[1]>=minLat&&n2[1]<=maxLat&&n2[0]>=minLon&&n2[0]<=maxLon);
-      if(!inBox)continue;
+    // Check if edge midpoint or endpoints are close to any user lane segment
+    let isClose=false;
+    for(let i=0;i<coords.length-1&&!isClose;i++){
+      const p1=coords[i],p2=coords[i+1]; // [lat,lng]
 
-      // Calculate distance from edge midpoint to user lane segment
-      const midLat=(n1[1]+n2[1])/2,midLon=(n1[0]+n2[0])/2;
-      const d=pointToSegmentDist(midLat,midLon,p1[0],p1[1],p2[0],p2[1]);
+      // Distance from edge midpoint to user segment
+      const dMid=pointToSegmentDist(midLat,midLon,p1[0],p1[1],p2[0],p2[1]);
+      if(dMid<BUFFER_METERS){isClose=true;break;}
 
-      if(d<BUFFER*111000){ // Convert to ~meters
-        const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
-        covered.add(key);
-      }
+      // Distance from edge endpoint 1 to user segment
+      const d1=pointToSegmentDist(e1Lat,e1Lon,p1[0],p1[1],p2[0],p2[1]);
+      if(d1<BUFFER_METERS){isClose=true;break;}
+
+      // Distance from edge endpoint 2 to user segment
+      const d2=pointToSegmentDist(e2Lat,e2Lon,p1[0],p1[1],p2[0],p2[1]);
+      if(d2<BUFFER_METERS){isClose=true;break;}
+
+      // Also check reverse: user lane points close to the edge
+      const up1=pointToSegmentDist(p1[0],p1[1],e1Lat,e1Lon,e2Lat,e2Lon);
+      if(up1<BUFFER_METERS){isClose=true;break;}
+      const up2=pointToSegmentDist(p2[0],p2[1],e1Lat,e1Lon,e2Lat,e2Lon);
+      if(up2<BUFFER_METERS){isClose=true;break;}
+    }
+
+    if(isClose){
+      const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
+      covered.add(key);
     }
   }
+
+  console.log('findCoveredEdges: found '+covered.size+' edges for lane with '+coords.length+' points');
 
   // Convert to array of [nodeA,nodeB] pairs
   const result=[];
@@ -1382,11 +1061,11 @@ function startDrawing(){
   document.getElementById('drawBtn').style.display='none';
   document.getElementById('cancelBtn').style.display='inline';
   document.getElementById('finishBtn').style.display='inline';
-  document.getElementById('drawingStatus').innerHTML='<b style="color:#6a1b9a">Drawing mode active.</b> Click on the map to add points. Double-click or press Finish to complete.';
+  document.getElementById('drawingStatus').innerHTML='<b style="color:#e91e63">Drawing mode active.</b> Click on the map to add points. Double-click or press Finish to complete.';
 
   // Create a new polyline for drawing
   currentDrawLayer=L.polyline([],{
-    color:'#6a1b9a',
+    color:'#E91E63',
     weight:5,
     opacity:0.8,
     dashArray:'10,5'
@@ -1400,44 +1079,16 @@ function startDrawing(){
   map.getContainer().style.cursor='crosshair';
 }
 
-// Markers for snapped points during drawing
-let snapMarkers=[];
-
 function onDrawClick(e){
   if(!isDrawing||!currentDrawLayer)return;
-
-  // Try to snap the clicked point to nearby network nodes or user lane points
-  const snap=findNearestSnapPoint(e.latlng.lat,e.latlng.lng);
-  const latlng=L.latLng(snap.lat,snap.lng);
-
+  const latlng=e.latlng;
   const coords=currentDrawLayer.getLatLngs();
   coords.push(latlng);
   currentDrawLayer.setLatLngs(coords);
 
-  // Add visual marker for snapped points
-  if(snap.snapped){
-    const marker=L.circleMarker(latlng,{
-      radius:6,
-      color:'#27ae60',
-      fillColor:'#2ecc71',
-      fillOpacity:0.8,
-      weight:2
-    }).addTo(map);
-    marker.bindTooltip('Snapped to '+(snap.type==='node'?'road':'lane'),{permanent:false,direction:'top'});
-    snapMarkers.push(marker);
-  }
-
   const len=calcLaneLength(coords.map(c=>[c.lat,c.lng]));
-  const snapStatus=snap.snapped?' <span style="color:#27ae60">(snapped to '+snap.type+')</span>':'';
   document.getElementById('drawingStatus').innerHTML=
-    '<b style="color:#6a1b9a">Drawing...</b> Points: '+coords.length+', Length: '+(len/1000).toFixed(2)+' km.'+snapStatus+' Double-click or Finish to complete.';
-}
-
-function clearSnapMarkers(){
-  for(const m of snapMarkers){
-    map.removeLayer(m);
-  }
-  snapMarkers=[];
+    '<b style="color:#e91e63">Drawing...</b> Points: '+coords.length+', Length: '+(len/1000).toFixed(2)+' km. Double-click or Finish to complete.';
 }
 
 function cancelDrawing(){
@@ -1448,7 +1099,6 @@ function cancelDrawing(){
     map.removeLayer(currentDrawLayer);
     currentDrawLayer=null;
   }
-  clearSnapMarkers();
 
   map.off('click',onDrawClick);
   map.off('dblclick',finishDrawing);
@@ -1474,10 +1124,9 @@ function finishDrawing(){
   map.off('dblclick',finishDrawing);
   map.getContainer().style.cursor='';
 
-  // Remove temporary dashed layer and snap markers
+  // Remove temporary dashed layer
   map.removeLayer(currentDrawLayer);
   currentDrawLayer=null;
-  clearSnapMarkers();
 
   document.getElementById('drawBtn').style.display='inline';
   document.getElementById('cancelBtn').style.display='none';
@@ -1487,12 +1136,8 @@ function finishDrawing(){
   const defaultName='Custom Lane '+(userLaneIdCounter+1);
   const name=prompt('Enter a name for this lane:',defaultName)||defaultName;
 
-  // Create the lane object with connection points inserted
-  let coordsArr=coords.map(c=>[c.lat,c.lng]);
-  const origLen=coordsArr.length;
-  coordsArr=insertConnectionPoints(coordsArr);
-  const insertedCount=coordsArr.length-origLen;
-
+  // Create the lane object
+  const coordsArr=coords.map(c=>[c.lat,c.lng]);
   const length=calcLaneLength(coordsArr);
   const edges=findCoveredEdges(coordsArr);
 
@@ -1508,7 +1153,7 @@ function finishDrawing(){
 
   // Create the visual layer
   lane.layer=L.polyline(coords,{
-    color:'#6a1b9a',
+    color:'#E91E63',
     weight:5,
     opacity:0.85
   });
@@ -1520,8 +1165,7 @@ function finishDrawing(){
 
   userLanes.push(lane);
 
-  const connMsg=insertedCount>0?' '+insertedCount+' connection point'+(insertedCount>1?'s':'')+' added.':'';
-  document.getElementById('drawingStatus').innerHTML='<span style="color:#27ae60">Lane "'+name+'" created! ('+edges.length+' road edges matched.'+connMsg+')</span>';
+  document.getElementById('drawingStatus').innerHTML='<span style="color:#27ae60">Lane "'+name+'" created! ('+edges.length+' road edges matched)</span>';
 
   buildUserLaneList();
   invalidateUserLaneComputation();
@@ -1678,7 +1322,7 @@ function importUserLanes(event){
         };
 
         lane.layer=L.polyline(coords.map(c=>[c[0],c[1]]),{
-          color:'#6a1b9a',
+          color:'#E91E63',
           weight:5,
           opacity:lane.active?0.85:0.3
         });
@@ -1711,6 +1355,8 @@ dijkstra=function(origIdx,destIdx,k){
       userEdgeSet.add(key);
     }
   }
+
+  console.log('dijkstra: userEdgeSet.size='+userEdgeSet.size+', userLanes.length='+userLanes.length);
 
   // If no user lanes, use original
   if(userEdgeSet.size===0){
