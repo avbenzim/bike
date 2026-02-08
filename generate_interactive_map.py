@@ -39,8 +39,9 @@ def load_data():
     return areas, roads, completed, construction, wishing
 
 
-def build_network(roads_proj, bike_lanes_list, tolerance=NODE_TOLERANCE):
+def build_network(roads_proj, bike_lanes_list, areas_proj=None, tolerance=NODE_TOLERANCE):
     from shapely.strtree import STRtree
+    from shapely.geometry import Point
 
     G = nx.Graph()
     coord_to_node = {}
@@ -123,9 +124,102 @@ def build_network(roads_proj, bike_lanes_list, tolerance=NODE_TOLERANCE):
                 for line in geom.geoms:
                     mark_bike_lane_roads(line)
 
+    # Connect area centroids to the nearest roads
+    # This ensures every area has a proper connection to the network
+    if areas_proj is not None and len(road_geoms) > 0:
+        road_tree_for_areas = STRtree(road_geoms)
+
+        for _, area_row in areas_proj.iterrows():
+            centroid = area_row.geometry.centroid
+            centroid_pt = Point(centroid.x, centroid.y)
+
+            # Find nearest road geometry
+            nearest_idx = road_tree_for_areas.nearest(centroid_pt)
+            nearest_road = road_geoms[nearest_idx]
+
+            # Find the nearest point on that road
+            nearest_point_on_road = nearest_road.interpolate(nearest_road.project(centroid_pt))
+            dist_to_road = centroid_pt.distance(nearest_point_on_road)
+
+            # Create a node at the nearest point on the road
+            road_node = get_or_create_node(nearest_point_on_road.x, nearest_point_on_road.y)
+
+            # Get the edge that this road corresponds to
+            edge_key = road_edges[nearest_idx]
+            s, e = edge_key
+
+            # If the road node is different from both endpoints, we need to split the edge
+            if road_node != s and road_node != e and G.has_edge(s, e):
+                old_length = G[s][e]['length']
+                old_has_bike = G[s][e].get('has_bike_lane', False)
+
+                # Calculate distances from road node to both endpoints
+                s_coord = node_coords[s]
+                e_coord = node_coords[e]
+                road_node_coord = node_coords[road_node]
+
+                dist_to_s = np.sqrt((road_node_coord[0] - s_coord[0])**2 + (road_node_coord[1] - s_coord[1])**2)
+                dist_to_e = np.sqrt((road_node_coord[0] - e_coord[0])**2 + (road_node_coord[1] - e_coord[1])**2)
+
+                # Only split if the new node is meaningfully inside the edge
+                if dist_to_s > tolerance and dist_to_e > tolerance:
+                    # Remove old edge
+                    G.remove_edge(s, e)
+                    # Add two new edges
+                    G.add_edge(s, road_node, length=dist_to_s, has_bike_lane=old_has_bike)
+                    G.add_edge(road_node, e, length=dist_to_e, has_bike_lane=old_has_bike)
+                    # Update edge_to_geom for the new edges
+                    new_key_s = (min(s, road_node), max(s, road_node))
+                    new_key_e = (min(road_node, e), max(road_node, e))
+                    # Keep reference to original geometry for path drawing
+                    if edge_key in edge_to_geom:
+                        edge_to_geom[new_key_s] = edge_to_geom[edge_key]
+                        edge_to_geom[new_key_e] = edge_to_geom[edge_key]
+
+            # If centroid is significantly far from the road, add a connector edge
+            # This creates a direct path from area to road network
+            if dist_to_road > tolerance:
+                centroid_node = get_or_create_node(centroid.x, centroid.y)
+                if centroid_node != road_node:
+                    # Add edge connecting centroid to road network
+                    G.add_edge(centroid_node, road_node, length=dist_to_road, has_bike_lane=False)
+
     node_ids = list(node_coords.keys())
     coords_array = np.array([node_coords[n] for n in node_ids])
     node_tree = cKDTree(coords_array) if len(coords_array) > 0 else None
+
+    # Ensure all areas are connected to the largest component
+    # Some areas might be near disconnected road segments
+    if areas_proj is not None and node_tree is not None:
+        largest_cc = max(nx.connected_components(G), key=len)
+        # Build a KD-tree of only the nodes in the largest component
+        cc_nodes = [n for n in node_ids if n in largest_cc]
+        if cc_nodes:
+            cc_coords = np.array([node_coords[n] for n in cc_nodes])
+            cc_tree = cKDTree(cc_coords)
+
+            for _, area_row in areas_proj.iterrows():
+                centroid = area_row.geometry.centroid
+                # Find the nearest node to this centroid
+                _, nearest_idx = node_tree.query([centroid.x, centroid.y])
+                nearest_node = node_ids[nearest_idx]
+
+                # If it's not in the largest component, connect it
+                if nearest_node not in largest_cc:
+                    # Find the nearest node in the largest component
+                    dist, cc_idx = cc_tree.query([centroid.x, centroid.y])
+                    cc_node = cc_nodes[cc_idx]
+
+                    # Add edge from the nearest node to the main network
+                    if nearest_node != cc_node:
+                        nearest_coord = node_coords[nearest_node]
+                        cc_coord = node_coords[cc_node]
+                        edge_length = np.sqrt((nearest_coord[0] - cc_coord[0])**2 +
+                                             (nearest_coord[1] - cc_coord[1])**2)
+                        G.add_edge(nearest_node, cc_node, length=edge_length, has_bike_lane=False)
+                        # Update the largest component (now includes the connected nodes)
+                        largest_cc = max(nx.connected_components(G), key=len)
+
     return G, node_coords, node_tree, node_ids, edge_to_geom
 
 
@@ -223,7 +317,7 @@ def main():
 
     # Build network (no pre-computation of accessibility - all done online)
     print("Building network...")
-    G_base, nc, nt, ni, edge_geoms = build_network(roads_proj, [completed, construction])
+    G_base, nc, nt, ni, edge_geoms = build_network(roads_proj, [completed, construction], areas_proj)
     print(f"  Network: {G_base.number_of_nodes()} nodes, {G_base.number_of_edges()} edges")
 
     # Build network data for path finding (WGS84 coords)

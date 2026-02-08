@@ -57,10 +57,13 @@ def load_data():
     return areas, roads, completed, construction, wishing_list
 
 
-def build_network_with_intersections(roads_gdf, bike_lanes_list, tolerance=15):
+def build_network_with_intersections(roads_gdf, bike_lanes_list, areas_gdf=None, tolerance=15):
     """
     Build network where bike lanes create nodes at all road intersections.
+    Also connects area centroids to the nearest roads for proper accessibility.
     """
+    from shapely.strtree import STRtree
+
     G = nx.Graph()
     coord_to_node = {}
     node_coords = {}
@@ -186,10 +189,109 @@ def build_network_with_intersections(roads_gdf, bike_lanes_list, tolerance=15):
                     else:
                         G.add_edge(n1, n2, length=seg_length, has_bike_lane=True)
 
+    # Connect area centroids to the nearest roads
+    # This ensures every area has a proper connection to the network
+    if areas_gdf is not None and len(road_geoms) > 0:
+        road_tree_for_areas = STRtree(road_geoms)
+
+        # Build a mapping from road geom index to its edge nodes
+        road_edges_list = []
+        for geom in road_geoms:
+            coords = list(geom.coords)
+            if len(coords) >= 2:
+                sx, sy = coords[0][0], coords[0][1]
+                ex, ey = coords[-1][0], coords[-1][1]
+                s_key = (round(sx / tolerance) * tolerance, round(sy / tolerance) * tolerance)
+                e_key = (round(ex / tolerance) * tolerance, round(ey / tolerance) * tolerance)
+                s_node = coord_to_node.get(s_key)
+                e_node = coord_to_node.get(e_key)
+                road_edges_list.append((s_node, e_node))
+            else:
+                road_edges_list.append((None, None))
+
+        for _, area_row in areas_gdf.iterrows():
+            centroid = area_row.geometry.centroid
+            centroid_pt = Point(centroid.x, centroid.y)
+
+            # Find nearest road geometry
+            nearest_idx = road_tree_for_areas.nearest(centroid_pt)
+            nearest_road = road_geoms[nearest_idx]
+
+            # Find the nearest point on that road
+            nearest_point_on_road = nearest_road.interpolate(nearest_road.project(centroid_pt))
+            dist_to_road = centroid_pt.distance(nearest_point_on_road)
+
+            # Create a node at the nearest point on the road
+            road_node = get_or_create_node(nearest_point_on_road.x, nearest_point_on_road.y)
+
+            # Get the edge endpoints for this road
+            s, e = road_edges_list[nearest_idx]
+
+            # If the road node is different from both endpoints, we need to split the edge
+            if s is not None and e is not None and road_node != s and road_node != e and G.has_edge(s, e):
+                old_length = G[s][e]['length']
+                old_has_bike = G[s][e].get('has_bike_lane', False)
+
+                # Calculate distances from road node to both endpoints
+                s_coord = node_coords[s]
+                e_coord = node_coords[e]
+                road_node_coord = node_coords[road_node]
+
+                dist_to_s = np.sqrt((road_node_coord[0] - s_coord[0])**2 + (road_node_coord[1] - s_coord[1])**2)
+                dist_to_e = np.sqrt((road_node_coord[0] - e_coord[0])**2 + (road_node_coord[1] - e_coord[1])**2)
+
+                # Only split if the new node is meaningfully inside the edge
+                if dist_to_s > tolerance and dist_to_e > tolerance:
+                    # Remove old edge
+                    G.remove_edge(s, e)
+                    # Add two new edges
+                    G.add_edge(s, road_node, length=dist_to_s, has_bike_lane=old_has_bike)
+                    G.add_edge(road_node, e, length=dist_to_e, has_bike_lane=old_has_bike)
+
+            # If centroid is significantly far from the road, add a connector edge
+            # This creates a direct path from area to road network
+            if dist_to_road > tolerance:
+                centroid_node = get_or_create_node(centroid.x, centroid.y)
+                if centroid_node != road_node:
+                    # Add edge connecting centroid to road network
+                    G.add_edge(centroid_node, road_node, length=dist_to_road, has_bike_lane=False)
+
     # Build node lookup tree
     node_ids = list(node_coords.keys())
     coords_array = np.array([node_coords[n] for n in node_ids])
     node_tree = cKDTree(coords_array)
+
+    # Ensure all areas are connected to the largest component
+    # Some areas might be near disconnected road segments
+    if areas_gdf is not None and len(coords_array) > 0:
+        largest_cc = max(nx.connected_components(G), key=len)
+        # Build a KD-tree of only the nodes in the largest component
+        cc_nodes = [n for n in node_ids if n in largest_cc]
+        if cc_nodes:
+            cc_coords = np.array([node_coords[n] for n in cc_nodes])
+            cc_tree = cKDTree(cc_coords)
+
+            for _, area_row in areas_gdf.iterrows():
+                centroid = area_row.geometry.centroid
+                # Find the nearest node to this centroid
+                _, nearest_idx = node_tree.query([centroid.x, centroid.y])
+                nearest_node = node_ids[nearest_idx]
+
+                # If it's not in the largest component, connect it
+                if nearest_node not in largest_cc:
+                    # Find the nearest node in the largest component
+                    dist, cc_idx = cc_tree.query([centroid.x, centroid.y])
+                    cc_node = cc_nodes[cc_idx]
+
+                    # Add edge from the nearest node to the main network
+                    if nearest_node != cc_node:
+                        nearest_coord = node_coords[nearest_node]
+                        cc_coord = node_coords[cc_node]
+                        edge_length = np.sqrt((nearest_coord[0] - cc_coord[0])**2 +
+                                             (nearest_coord[1] - cc_coord[1])**2)
+                        G.add_edge(nearest_node, cc_node, length=edge_length, has_bike_lane=False)
+                        # Update the largest component (now includes the connected nodes)
+                        largest_cc = max(nx.connected_components(G), key=len)
 
     return G, node_coords, node_tree, node_ids
 
@@ -243,7 +345,7 @@ def main():
 
     print("\nCalculating baseline (without any wishing list lanes)...")
     G_base, node_coords, node_tree, node_ids = build_network_with_intersections(
-        roads, [completed, construction], tolerance=NODE_TOLERANCE
+        roads, [completed, construction], areas_gdf=areas, tolerance=NODE_TOLERANCE
     )
     print(f"  Network: {G_base.number_of_nodes()} nodes, {G_base.number_of_edges()} edges")
     baseline_N = calculate_total_N(G_base, node_coords, node_tree, node_ids, areas, THETA, K_PENALTY)
@@ -258,7 +360,7 @@ def main():
         lane_length = lane.to_crs(TARGET_CRS).geometry.length.iloc[0]
 
         G_with_lane, nc, nt, ni = build_network_with_intersections(
-            roads, [completed, construction, lane], tolerance=NODE_TOLERANCE
+            roads, [completed, construction, lane], areas_gdf=areas, tolerance=NODE_TOLERANCE
         )
         N_with_lane = calculate_total_N(G_with_lane, nc, nt, ni, areas, THETA, K_PENALTY)
 
