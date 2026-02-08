@@ -191,18 +191,3 @@ This measures how many people can reach area j (e.g., how accessible is a workpl
 - Donaldson, D., & Hornbeck, R. (2016). Railroads and American economic growth: A "market access" approach. *The Quarterly Journal of Economics*, 131(2), 799-858.
 - Tsivanidis, N. (2024). Evaluating the Impact of Urban Transit Infrastructure: Evidence from Bogotá's TransMilenio. *American Economic Review*, 116(2), 418-463.
 
-## Close
-
-This methodology provides a systematic, data-driven approach to prioritizing bike lane investments. By combining:
-
-- **Gravity model physics**: Captures the fundamental relationship between accessibility, distance, and demand
-- **Network analysis**: Ensures realistic routing through the actual road/bike lane network
-- **Sensitivity analysis**: Tests robustness across different cyclist behavior assumptions (K) and trip distance preferences (θ)
-- **Interactive visualization**: Enables planners to explore scenarios and understand trade-offs
-
-The rankings should be considered alongside other factors not modeled here, including:
-- Construction costs and feasibility
-- Safety considerations and accident data
-- Equity and access for underserved neighborhoods
-- Integration with public transit
-- Political and community priorities
