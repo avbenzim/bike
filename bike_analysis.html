@@ -1054,6 +1054,119 @@ function pointToSegmentDist(px,py,x1,y1,x2,y2){
   return haversineDistance(px,py,projX,projY);
 }
 
+// Snap threshold in meters (same as road edge matching)
+const SNAP_THRESHOLD=15;
+
+// Find the nearest snap point (network node or user lane point) within threshold
+function findNearestSnapPoint(lat,lng){
+  let bestDist=Infinity;
+  let bestPoint=null;
+  let bestType=null;
+
+  // Check all network nodes
+  for(const nodeId in NODES){
+    const node=NODES[nodeId];
+    // NODES stores [lon, lat]
+    const nodeLat=node[1],nodeLon=node[0];
+    const d=haversineDistance(lat,lng,nodeLat,nodeLon);
+    if(d<bestDist){
+      bestDist=d;
+      bestPoint={lat:nodeLat,lng:nodeLon};
+      bestType='node';
+    }
+  }
+
+  // Check all points from existing user lanes
+  for(const lane of userLanes){
+    for(const coord of lane.coords){
+      // userLanes coords are [lat, lng]
+      const d=haversineDistance(lat,lng,coord[0],coord[1]);
+      if(d<bestDist){
+        bestDist=d;
+        bestPoint={lat:coord[0],lng:coord[1]};
+        bestType='lane';
+      }
+    }
+  }
+
+  // Return snapped point if within threshold
+  if(bestDist<=SNAP_THRESHOLD&&bestPoint){
+    return{lat:bestPoint.lat,lng:bestPoint.lng,snapped:true,type:bestType};
+  }
+  return{lat:lat,lng:lng,snapped:false};
+}
+
+// Project a point onto a line segment, returns {t, dist}
+function projectPointToSegment(px,py,x1,y1,x2,y2){
+  const dx=x2-x1,dy=y2-y1;
+  if(dx===0&&dy===0)return{t:0,dist:haversineDistance(px,py,x1,y1)};
+  const t=Math.max(0,Math.min(1,((px-x1)*dx+(py-y1)*dy)/(dx*dx+dy*dy)));
+  const projX=x1+t*dx,projY=y1+t*dy;
+  return{t:t,dist:haversineDistance(px,py,projX,projY)};
+}
+
+// Insert connection points where the lane passes near road nodes
+// This ensures the lane connects to the road network at intersections
+function insertConnectionPoints(coords){
+  const result=[];
+  const threshold=SNAP_THRESHOLD;
+
+  for(let i=0;i<coords.length-1;i++){
+    const p1=coords[i],p2=coords[i+1];
+    result.push(p1);
+
+    // Collect nearby points to insert along this segment
+    const toInsert=[];
+
+    // Check network nodes
+    for(const nodeId in NODES){
+      const node=NODES[nodeId];
+      const nodeLat=node[1],nodeLon=node[0];
+      const proj=projectPointToSegment(nodeLat,nodeLon,p1[0],p1[1],p2[0],p2[1]);
+
+      // Only insert if close enough and not at segment endpoints
+      if(proj.dist<=threshold&&proj.t>0.05&&proj.t<0.95){
+        toInsert.push({t:proj.t,lat:nodeLat,lng:nodeLon,type:'node'});
+      }
+    }
+
+    // Check existing user lane points
+    for(const lane of userLanes){
+      for(const coord of lane.coords){
+        const proj=projectPointToSegment(coord[0],coord[1],p1[0],p1[1],p2[0],p2[1]);
+        if(proj.dist<=threshold&&proj.t>0.05&&proj.t<0.95){
+          toInsert.push({t:proj.t,lat:coord[0],lng:coord[1],type:'lane'});
+        }
+      }
+    }
+
+    // Sort by t and insert in order, removing duplicates (within 5m)
+    toInsert.sort((a,b)=>a.t-b.t);
+    let lastInserted=null;
+    for(const pt of toInsert){
+      if(lastInserted&&haversineDistance(pt.lat,pt.lng,lastInserted[0],lastInserted[1])<5){
+        continue;
+      }
+      result.push([pt.lat,pt.lng]);
+      lastInserted=[pt.lat,pt.lng];
+    }
+  }
+
+  // Add the last point
+  result.push(coords[coords.length-1]);
+  return result;
+}
+
+// Markers for snapped points during drawing
+let snapMarkers=[];
+
+function clearSnapMarkers(){
+  for(const m of snapMarkers){
+    map.removeLayer(m);
+  }
+  snapMarkers=[];
+}
+
 function startDrawing(){
   if(isDrawing)return;
   isDrawing=true;
@@ -1081,14 +1194,32 @@ function startDrawing(){
 
 function onDrawClick(e){
   if(!isDrawing||!currentDrawLayer)return;
-  const latlng=e.latlng;
+
+  // Try to snap the clicked point to nearby network nodes or user lane points
+  const snap=findNearestSnapPoint(e.latlng.lat,e.latlng.lng);
+  const latlng=L.latLng(snap.lat,snap.lng);
+
   const coords=currentDrawLayer.getLatLngs();
   coords.push(latlng);
   currentDrawLayer.setLatLngs(coords);
 
+  // Add visual marker for snapped points
+  if(snap.snapped){
+    const marker=L.circleMarker(latlng,{
+      radius:6,
+      color:'#27ae60',
+      fillColor:'#2ecc71',
+      fillOpacity:0.8,
+      weight:2
+    }).addTo(map);
+    marker.bindTooltip('Snapped to '+(snap.type==='node'?'road':'lane'),{permanent:false,direction:'top'});
+    snapMarkers.push(marker);
+  }
+
   const len=calcLaneLength(coords.map(c=>[c.lat,c.lng]));
+  const snapStatus=snap.snapped?' <span style="color:#27ae60">(snapped to '+snap.type+')</span>':'';
   document.getElementById('drawingStatus').innerHTML=
-    '<b style="color:#e91e63">Drawing...</b> Points: '+coords.length+', Length: '+(len/1000).toFixed(2)+' km. Double-click or Finish to complete.';
+    '<b style="color:#e91e63">Drawing...</b> Points: '+coords.length+', Length: '+(len/1000).toFixed(2)+' km.'+snapStatus+' Double-click or Finish to complete.';
 }
 
 function cancelDrawing(){
@@ -1099,6 +1230,7 @@ function cancelDrawing(){
     map.removeLayer(currentDrawLayer);
     currentDrawLayer=null;
   }
+  clearSnapMarkers();
 
   map.off('click',onDrawClick);
   map.off('dblclick',finishDrawing);
@@ -1124,9 +1256,10 @@ function finishDrawing(){
   map.off('dblclick',finishDrawing);
   map.getContainer().style.cursor='';
 
-  // Remove temporary dashed layer
+  // Remove temporary dashed layer and snap markers
   map.removeLayer(currentDrawLayer);
   currentDrawLayer=null;
+  clearSnapMarkers();
 
   document.getElementById('drawBtn').style.display='inline';
   document.getElementById('cancelBtn').style.display='none';
@@ -1136,8 +1269,13 @@ function finishDrawing(){
   const defaultName='Custom Lane '+(userLaneIdCounter+1);
   const name=prompt('Enter a name for this lane:',defaultName)||defaultName;
 
-  // Create the lane object
-  const coordsArr=coords.map(c=>[c.lat,c.lng]);
+  // Create the lane object with connection points inserted at intersections
+  let coordsArr=coords.map(c=>[c.lat,c.lng]);
+  const origLen=coordsArr.length;
+  coordsArr=insertConnectionPoints(coordsArr);
+  const insertedCount=coordsArr.length-origLen;
+  console.log('finishDrawing: inserted '+insertedCount+' connection points');
+
   const length=calcLaneLength(coordsArr);
   const edges=findCoveredEdges(coordsArr);
 
@@ -1157,15 +1295,18 @@ function finishDrawing(){
     weight:5,
     opacity:0.85
   });
-  lane.layer.bindPopup('<b>'+name+'</b><br>Length: '+(length/1000).toFixed(2)+' km<br>Matched edges: '+edges.length);
+  lane.layer.bindPopup('<b>'+name+'</b><br>Length: '+(length/1000).toFixed(2)+' km<br>Matched edges: '+edges.length+'<br>Connection points: '+insertedCount);
   lane.layer.on('click',function(e){
+    // Don't stop propagation during drawing mode
+    if(isDrawing)return;
     L.DomEvent.stopPropagation(e);
   });
   userLanesLyrGroup.addLayer(lane.layer);
 
   userLanes.push(lane);
 
-  document.getElementById('drawingStatus').innerHTML='<span style="color:#27ae60">Lane "'+name+'" created! ('+edges.length+' road edges matched)</span>';
+  const connMsg=insertedCount>0?' ('+insertedCount+' connection pts added)':'';
+  document.getElementById('drawingStatus').innerHTML='<span style="color:#27ae60">Lane "'+name+'" created! ('+edges.length+' road edges matched'+connMsg+')</span>';
 
   buildUserLaneList();
   invalidateUserLaneComputation();
