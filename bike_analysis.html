@@ -1119,7 +1119,7 @@ function calcLaneLength(coords){
 // Find road edges near a user-drawn lane (similar to wishing lanes matching)
 function findCoveredEdges(coords){
   const covered=new Set();
-  const BUFFER_METERS=25; // 25m buffer for matching
+  const BUFFER_METERS=50; // 50m buffer for matching
   let minDistFound=Infinity;
   let closestEdge=null;
 
