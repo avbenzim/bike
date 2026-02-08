@@ -213,13 +213,33 @@ button:hover{background:#2980b9}
     </div>
     <div id="paths" class="tc">
       <h3>Find Shortest Path</h3>
-      <div class="note">Compute shortest path between areas using current network (with selected lanes).</div>
-      <div class="path-ctl">
+      <div class="note">Compute shortest path using current network (with selected lanes).</div>
+      <div style="margin-bottom:10px">
+        <label style="margin-right:15px"><input type="radio" name="pathMode" value="area" checked onchange="togglePathMode()"> By area</label>
+        <label><input type="radio" name="pathMode" value="point" onchange="togglePathMode()"> By map point</label>
+      </div>
+      <div id="areaPathMode" class="path-ctl">
         <label>Origin area:</label>
         <input type="text" id="origInput" list="areaList" placeholder="Search area..." style="width:100%;padding:6px;margin-bottom:8px;border:1px solid #ddd;border-radius:4px">
         <label>Destination area:</label>
         <input type="text" id="destInput" list="areaList" placeholder="Search area..." style="width:100%;padding:6px;margin-bottom:8px;border:1px solid #ddd;border-radius:4px">
         <datalist id="areaList"></datalist>
+        <button onclick="showPath()">Show path</button>
+      </div>
+      <div id="pointPathMode" style="display:none" class="path-ctl">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <label style="min-width:70px">Origin:</label>
+          <span id="origPointLabel" style="flex:1;padding:6px;background:#f5f5f5;border:1px solid #ddd;border-radius:4px;font-size:.85em;color:#666">Not set - click Pick</span>
+          <button onclick="startPickingPoint('origin')" style="padding:4px 10px">Pick</button>
+          <button onclick="clearPathPoint('origin')" style="padding:4px 8px;background:#f5f5f5">X</button>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+          <label style="min-width:70px">Dest:</label>
+          <span id="destPointLabel" style="flex:1;padding:6px;background:#f5f5f5;border:1px solid #ddd;border-radius:4px;font-size:.85em;color:#666">Not set - click Pick</span>
+          <button onclick="startPickingPoint('dest')" style="padding:4px 10px">Pick</button>
+          <button onclick="clearPathPoint('dest')" style="padding:4px 8px;background:#f5f5f5">X</button>
+        </div>
+        <div id="pickingStatus" style="font-size:.85em;color:#e91e63;margin-bottom:8px"></div>
         <button onclick="showPath()">Show path</button>
       </div>
       <div id="pathInfo"></div>
@@ -263,6 +283,13 @@ let computedAcc=null;
 let computedK=null;
 let computedTheta=null;
 let computedSel=null;
+
+// Path point selection state
+let pathOriginPoint=null;
+let pathDestPoint=null;
+let pathOriginMarker=null;
+let pathDestMarker=null;
+let pickingPointFor=null;
 
 // User-drawn lanes
 const userLanes=[];  // Array of {id, name, coords, length, active, layer, edges}
@@ -602,12 +629,107 @@ function showTab(id,btn){
 }
 
 // === PATH FINDING ===
+function togglePathMode(){
+  const mode=document.querySelector('input[name="pathMode"]:checked').value;
+  document.getElementById('areaPathMode').style.display=mode==='area'?'block':'none';
+  document.getElementById('pointPathMode').style.display=mode==='point'?'block':'none';
+  if(pickingPointFor){
+    map.off('click',onPathPointClick);
+    map.getContainer().style.cursor='';
+    pickingPointFor=null;
+    document.getElementById('pickingStatus').innerHTML='';
+  }
+}
+
+function startPickingPoint(which){
+  if(pickingPointFor){
+    map.off('click',onPathPointClick);
+  }
+  pickingPointFor=which;
+  map.getContainer().style.cursor='crosshair';
+  document.getElementById('pickingStatus').innerHTML='<b>Click on the map to set '+(which==='origin'?'origin':'destination')+' point...</b>';
+  map.on('click',onPathPointClick);
+}
+
+function onPathPointClick(e){
+  if(!pickingPointFor)return;
+
+  const lat=e.latlng.lat,lng=e.latlng.lng;
+
+  // Find nearest network node
+  let nearestNode=null,nearestDist=Infinity;
+  for(const[nid,c]of Object.entries(NODES)){
+    const d=haversineDistance(lat,lng,c[1],c[0]);
+    if(d<nearestDist){
+      nearestDist=d;
+      nearestNode=nid;
+    }
+  }
+
+  if(!nearestNode){
+    alert('Could not find a nearby network node.');
+    return;
+  }
+
+  const nodeCoord=NODES[nearestNode];
+  const point={lat:lat,lng:lng,nodeId:nearestNode,nodeLat:nodeCoord[1],nodeLon:nodeCoord[0],dist:nearestDist};
+
+  if(pickingPointFor==='origin'){
+    pathOriginPoint=point;
+    if(pathOriginMarker)map.removeLayer(pathOriginMarker);
+    pathOriginMarker=L.marker([lat,lng],{
+      icon:L.divIcon({className:'',html:'<div style="background:#27ae60;width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>',iconSize:[14,14],iconAnchor:[7,7]})
+    }).addTo(map);
+    pathOriginMarker.bindPopup('Origin: connects to node '+nearestNode+' ('+(nearestDist).toFixed(0)+'m away)');
+    document.getElementById('origPointLabel').innerHTML='<span style="color:#27ae60">Set</span> (connects '+nearestDist.toFixed(0)+'m to network)';
+  }else{
+    pathDestPoint=point;
+    if(pathDestMarker)map.removeLayer(pathDestMarker);
+    pathDestMarker=L.marker([lat,lng],{
+      icon:L.divIcon({className:'',html:'<div style="background:#e74c3c;width:14px;height:14px;border-radius:50%;border:2px solid white;box-shadow:0 1px 3px rgba(0,0,0,.4)"></div>',iconSize:[14,14],iconAnchor:[7,7]})
+    }).addTo(map);
+    pathDestMarker.bindPopup('Destination: connects to node '+nearestNode+' ('+(nearestDist).toFixed(0)+'m away)');
+    document.getElementById('destPointLabel').innerHTML='<span style="color:#e74c3c">Set</span> (connects '+nearestDist.toFixed(0)+'m to network)';
+  }
+
+  map.off('click',onPathPointClick);
+  map.getContainer().style.cursor='';
+  document.getElementById('pickingStatus').innerHTML='';
+  pickingPointFor=null;
+}
+
+function clearPathPoint(which){
+  if(which==='origin'){
+    pathOriginPoint=null;
+    if(pathOriginMarker){map.removeLayer(pathOriginMarker);pathOriginMarker=null;}
+    document.getElementById('origPointLabel').innerHTML='Not set - click Pick';
+  }else{
+    pathDestPoint=null;
+    if(pathDestMarker){map.removeLayer(pathDestMarker);pathDestMarker=null;}
+    document.getElementById('destPointLabel').innerHTML='Not set - click Pick';
+  }
+}
+
 function showPath(){
-  const origName=document.getElementById("origInput").value;
-  const destName=document.getElementById("destInput").value;
-  const oi=areaNameToId[origName];
-  const di=areaNameToId[destName];
-  if(oi===undefined||di===undefined){alert("Please select valid origin and destination areas.");return;}
+  const mode=document.querySelector('input[name="pathMode"]:checked').value;
+
+  let oNode,dNode,origIdx,destIdx;
+
+  if(mode==='area'){
+    const origName=document.getElementById("origInput").value;
+    const destName=document.getElementById("destInput").value;
+    origIdx=areaNameToId[origName];
+    destIdx=areaNameToId[destName];
+    if(origIdx===undefined||destIdx===undefined){alert("Please select valid origin and destination areas.");return;}
+  }else{
+    if(!pathOriginPoint||!pathDestPoint){
+      alert("Please set both origin and destination points on the map.");
+      return;
+    }
+    oNode=pathOriginPoint.nodeId;
+    dNode=pathDestPoint.nodeId;
+  }
+
   if(pathLyrGroup)map.removeLayer(pathLyrGroup);
 
   const k=currentK;
@@ -615,7 +737,12 @@ function showPath(){
 
   setTimeout(()=>{
     try{
-    const result=dijkstra(oi,di,k);
+    let result;
+    if(mode==='area'){
+      result=dijkstra(origIdx,destIdx,k);
+    }else{
+      result=dijkstraNodes(oNode,dNode,k);
+    }
     if(result&&result.segments.length>0){
       // Draw segments with different colors
       pathLyrGroup=L.featureGroup();
@@ -1583,6 +1710,89 @@ dijkstra=function(origIdx,destIdx,k){
   }
   return {segments:segments};
 };
+
+// Dijkstra with node IDs directly (for map point selection)
+function dijkstraNodes(oNode,dNode,k){
+  // Get edges covered by active user lanes
+  const userEdgeSet=new Set();
+  for(const lane of userLanes){
+    if(!lane.active)continue;
+    for(const e of lane.edges){
+      const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
+      userEdgeSet.add(key);
+    }
+  }
+
+  console.log('dijkstraNodes: userEdgeSet.size='+userEdgeSet.size+', oNode='+oNode+', dNode='+dNode);
+
+  // Build set of edges covered by selected wishing lanes
+  const wishingEdgeSet=new Set();
+  for(const lid of sel){
+    const edges=WISHING_EDGES[lid]||[];
+    for(const e of edges){
+      const a=Math.min(e[0],e[1]),b=Math.max(e[0],e[1]);
+      wishingEdgeSet.add(a+'_'+b);
+    }
+  }
+
+  // Build adjacency with edge info
+  const adj={};
+  for(const e of EDGES){
+    const len=e[2];
+    let bike=!!e[3];
+    const a=String(e[0]),b=String(e[1]);
+    const edgeKey=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
+    if(wishingEdgeSet.has(edgeKey)||userEdgeSet.has(edgeKey))bike=true;
+    const w=bike?len:len*k;
+    if(!adj[a])adj[a]=[];
+    if(!adj[b])adj[b]=[];
+    adj[a].push({n:b,w:w,len:len,bike:bike,eKey:edgeKey});
+    adj[b].push({n:a,w:w,len:len,bike:bike,eKey:edgeKey});
+  }
+
+  const dist={},prev={},prevEdge={},visited=new Set();
+  dist[oNode]=0;
+  let pq=[[0,oNode]];
+
+  while(pq.length){
+    const[cd,cur]=pq.shift();
+    if(visited.has(cur))continue;
+    visited.add(cur);
+    if(cur===dNode)break;
+    for(const{n,w,len,bike,eKey}of(adj[cur]||[])){
+      if(visited.has(n))continue;
+      const nd=cd+w;
+      if(dist[n]===undefined||nd<dist[n]){
+        dist[n]=nd;prev[n]=cur;prevEdge[n]={len:len,bike:bike,eKey:eKey};
+        let ins=pq.findIndex(x=>x[0]>nd);
+        if(ins<0)ins=pq.length;
+        pq.splice(ins,0,[nd,n]);
+      }
+    }
+  }
+
+  if(dist[dNode]===undefined)return null;
+
+  const segments=[];
+  let c=dNode;
+  while(prev[c]!==undefined){
+    const p=prev[c];
+    const e=prevEdge[c];
+    const geom=EDGE_GEOMS[e.eKey];
+    if(geom&&geom.length>=2){
+      const fromNode=NODES[p],toNode=NODES[c];
+      const g0=geom[0],gN=geom[geom.length-1];
+      const d0=Math.abs(g0[0]-fromNode[0])+Math.abs(g0[1]-fromNode[1]);
+      const dN=Math.abs(gN[0]-fromNode[0])+Math.abs(gN[1]-fromNode[1]);
+      const coords=(d0<=dN)?geom:geom.slice().reverse();
+      segments.unshift({geom:coords,len:e.len,bike:e.bike});
+    }else{
+      segments.unshift({from:NODES[p],to:NODES[c],len:e.len,bike:e.bike});
+    }
+    c=p;
+  }
+  return {segments:segments};
+}
 
 // Modify computeAccessibility to include user lanes
 const originalComputeAccessibility=computeAccessibility;
