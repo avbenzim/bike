@@ -1733,15 +1733,19 @@ dijkstra=function(origIdx,destIdx,k){
 function dijkstraNodes(oNode,dNode,k){
   // Get edges covered by active user lanes
   const userEdgeSet=new Set();
+  let totalUserEdges=0;
   for(const lane of userLanes){
+    console.log('dijkstraNodes: lane "'+lane.name+'" active='+lane.active+' edges='+lane.edges.length);
     if(!lane.active)continue;
     for(const e of lane.edges){
       const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
       userEdgeSet.add(key);
+      totalUserEdges++;
     }
   }
 
-  console.log('dijkstraNodes: userEdgeSet.size='+userEdgeSet.size+', oNode='+oNode+', dNode='+dNode);
+  console.log('dijkstraNodes: userLanes.length='+userLanes.length+', userEdgeSet.size='+userEdgeSet.size+', totalUserEdges='+totalUserEdges);
+  console.log('dijkstraNodes: oNode='+oNode+', dNode='+dNode+', k='+k);
 
   // Build set of edges covered by selected wishing lanes
   const wishingEdgeSet=new Set();
@@ -1755,18 +1759,22 @@ function dijkstraNodes(oNode,dNode,k){
 
   // Build adjacency with edge info
   const adj={};
+  let userEdgesInNetwork=0;
   for(const e of EDGES){
     const len=e[2];
     let bike=!!e[3];
     const a=String(e[0]),b=String(e[1]);
     const edgeKey=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
-    if(wishingEdgeSet.has(edgeKey)||userEdgeSet.has(edgeKey))bike=true;
+    const wasUserEdge=userEdgeSet.has(edgeKey);
+    if(wishingEdgeSet.has(edgeKey)||wasUserEdge)bike=true;
+    if(wasUserEdge)userEdgesInNetwork++;
     const w=bike?len:len*k;
     if(!adj[a])adj[a]=[];
     if(!adj[b])adj[b]=[];
-    adj[a].push({n:b,w:w,len:len,bike:bike,eKey:edgeKey});
-    adj[b].push({n:a,w:w,len:len,bike:bike,eKey:edgeKey});
+    adj[a].push({n:b,w:w,len:len,bike:bike,eKey:edgeKey,isUserEdge:wasUserEdge});
+    adj[b].push({n:a,w:w,len:len,bike:bike,eKey:edgeKey,isUserEdge:wasUserEdge});
   }
+  console.log('dijkstraNodes: userEdgesInNetwork='+userEdgesInNetwork+' (edges in network that match user lanes)');
 
   const dist={},prev={},prevEdge={},visited=new Set();
   dist[oNode]=0;
@@ -1793,9 +1801,11 @@ function dijkstraNodes(oNode,dNode,k){
 
   const segments=[];
   let c=dNode;
+  let userEdgesUsedInPath=0;
   while(prev[c]!==undefined){
     const p=prev[c];
     const e=prevEdge[c];
+    if(userEdgeSet.has(e.eKey))userEdgesUsedInPath++;
     const geom=EDGE_GEOMS[e.eKey];
     if(geom&&geom.length>=2){
       const fromNode=NODES[p],toNode=NODES[c];
@@ -1809,6 +1819,7 @@ function dijkstraNodes(oNode,dNode,k){
     }
     c=p;
   }
+  console.log('dijkstraNodes: path has '+segments.length+' segments, userEdgesUsedInPath='+userEdgesUsedInPath);
   return {segments:segments};
 }
 
