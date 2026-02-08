@@ -496,6 +496,8 @@ def generate_html(*, areas_geojson, completed_geojson, construction_geojson,
 <title>Jerusalem Bike Lane Analysis</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.css"/>
+<script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
 <style>
 *{{box-sizing:border-box}}
 body{{font-family:Arial,sans-serif;margin:0;display:flex;flex-direction:column;height:100vh}}
@@ -542,6 +544,24 @@ button:hover{{background:#2980b9}}
 .path-stats table{{width:100%;border-collapse:collapse;font-size:.9em}}
 .path-stats td{{padding:3px 6px}}
 .path-stats td:last-child{{text-align:right;font-weight:700}}
+.user-lane{{padding:8px;margin:4px 0;background:#fff;border-radius:4px;border:2px solid #e91e63;display:flex;flex-direction:column;gap:4px}}
+.user-lane.active{{background:#fce4ec;border-color:#c2185b}}
+.user-lane .lane-header{{display:flex;justify-content:space-between;align-items:center}}
+.user-lane .lane-name{{font-weight:700;color:#c2185b;flex:1}}
+.user-lane .lane-length{{color:#666;font-size:.85em;margin-right:8px}}
+.user-lane .lane-actions{{display:flex;gap:4px}}
+.user-lane .lane-actions button{{padding:3px 8px;font-size:11px;background:#e91e63;color:#fff;border:none;border-radius:3px;cursor:pointer}}
+.user-lane .lane-actions button:hover{{background:#c2185b}}
+.user-lane .lane-actions button.del{{background:#e74c3c}}
+.user-lane .lane-actions button.del:hover{{background:#c0392b}}
+.draw-controls{{background:#fce4ec;padding:10px;border-radius:5px;margin-bottom:10px;border:1px solid #e91e63}}
+.draw-controls button{{margin:4px 2px}}
+.draw-note{{background:#f8bbd9;padding:8px;border-radius:4px;margin-bottom:10px;font-size:.85em;border-left:3px solid #e91e63}}
+.impact-box{{background:#e8f5e9;padding:10px;border-radius:5px;margin-top:10px;border:1px solid #4caf50}}
+.impact-box.negative{{background:#ffebee;border-color:#f44336}}
+.impact-box h4{{margin:0 0 8px;color:#2e7d32}}
+.impact-box.negative h4{{color:#c62828}}
+.export-section{{margin-top:12px;padding-top:12px;border-top:1px solid #ddd}}
 </style>
 </head>
 <body>
@@ -602,6 +622,7 @@ button:hover{{background:#2980b9}}
       <div class="legend-item"><div class="legend-line" style="background:#81C784"></div>Under construction</div>
       <div class="legend-item"><div class="legend-line" style="background:#FF9800"></div>Wishing list</div>
       <div class="legend-item"><div class="legend-line" style="background:#9b59b6;height:6px"></div>Selected lane</div>
+      <div class="legend-item"><div class="legend-line" style="background:#E91E63;height:6px"></div>User-drawn lane</div>
       <div class="legend-item"><div class="legend-line" style="background:#1565C0;height:6px"></div>Path on bike lane</div>
       <div class="legend-item"><div class="legend-line" style="background:#E65100;height:6px"></div>Path on road</div>
       <hr style="margin:8px 0;border:none;border-top:1px solid #ccc">
@@ -623,6 +644,7 @@ button:hover{{background:#2980b9}}
   <div class="sidebar">
     <div class="tabs">
       <button class="act" onclick="showTab('lanes',this)">Select Lanes</button>
+      <button onclick="showTab('draw',this)">Draw Lane</button>
       <button onclick="showTab('paths',this)">Find Path</button>
       <button onclick="showTab('compute',this)">Accessibility</button>
     </div>
@@ -631,6 +653,24 @@ button:hover{{background:#2980b9}}
       <div class="note">Click lanes to select them for the network. Selected lanes affect path finding and accessibility calculations.</div>
       <input type="text" id="laneSearch" placeholder="Search lanes..." style="width:100%;padding:8px;margin:8px 0;border:1px solid #ddd;border-radius:4px;box-sizing:border-box" oninput="filterLanes()">
       <div id="laneList"></div>
+    </div>
+    <div id="draw" class="tc">
+      <h3>Draw Custom Lanes</h3>
+      <div class="draw-note">Draw your own bike lanes on the map to test their impact on accessibility. Click points to create a lane path, double-click to finish.</div>
+      <div class="draw-controls">
+        <button onclick="startDrawing()" id="drawBtn">Start Drawing</button>
+        <button onclick="cancelDrawing()" id="cancelBtn" style="display:none;background:#e74c3c">Cancel</button>
+        <button onclick="finishDrawing()" id="finishBtn" style="display:none;background:#27ae60">Finish Lane</button>
+      </div>
+      <div id="drawingStatus" style="margin:8px 0;font-size:.85em;color:#666"></div>
+      <h4 style="margin:12px 0 8px;color:#c2185b">Your Drawn Lanes (<span id="userLaneCount">0</span>)</h4>
+      <div id="userLaneList"></div>
+      <div id="userLaneImpact"></div>
+      <div class="export-section">
+        <button onclick="exportUserLanes()" style="width:48%">Export GeoJSON</button>
+        <button onclick="document.getElementById('importFile').click()" style="width:48%">Import GeoJSON</button>
+        <input type="file" id="importFile" accept=".geojson,.json" style="display:none" onchange="importUserLanes(event)">
+      </div>
     </div>
     <div id="compute" class="tc">
       <h3>Compute Accessibility</h3>
@@ -695,6 +735,14 @@ let computedAcc=null;
 let computedK=null;
 let computedTheta=null;
 let computedSel=null;
+
+// User-drawn lanes
+const userLanes=[];  // Array of {{id, name, coords, length, active, layer, edges}}
+let userLaneIdCounter=0;
+let userLanesLyrGroup=null;
+let drawControl=null;
+let currentDrawLayer=null;
+let isDrawing=false;
 
 // === CUSTOM PARAMETER HANDLERS ===
 function getK(){{return currentK;}}
@@ -1371,8 +1419,634 @@ function computeAccessibility(){{
   }},50);
 }}
 
+// === USER LANE DRAWING ===
+userLanesLyrGroup=L.featureGroup().addTo(map);
+
+// Haversine distance calculation for lat/lng coordinates
+function haversineDistance(lat1,lon1,lat2,lon2){{
+  const R=6371000; // Earth radius in meters
+  const dLat=(lat2-lat1)*Math.PI/180;
+  const dLon=(lon2-lon1)*Math.PI/180;
+  const a=Math.sin(dLat/2)*Math.sin(dLat/2)+
+    Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*
+    Math.sin(dLon/2)*Math.sin(dLon/2);
+  const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+  return R*c;
+}}
+
+// Calculate total length of a coordinate array
+function calcLaneLength(coords){{
+  let total=0;
+  for(let i=1;i<coords.length;i++){{
+    total+=haversineDistance(coords[i-1][0],coords[i-1][1],coords[i][0],coords[i][1]);
+  }}
+  return total;
+}}
+
+// Find road edges near a user-drawn lane (similar to wishing lanes matching)
+function findCoveredEdges(coords){{
+  const covered=new Set();
+  const BUFFER=0.00015; // ~15m in degrees at Jerusalem latitude
+
+  // For each point pair in the user lane
+  for(let i=0;i<coords.length-1;i++){{
+    const p1=coords[i],p2=coords[i+1];
+    const minLat=Math.min(p1[0],p2[0])-BUFFER;
+    const maxLat=Math.max(p1[0],p2[0])+BUFFER;
+    const minLon=Math.min(p1[1],p2[1])-BUFFER;
+    const maxLon=Math.max(p1[1],p2[1])+BUFFER;
+
+    // Check each edge to see if it's close to this segment
+    for(const e of EDGES){{
+      const n1=NODES[String(e[0])],n2=NODES[String(e[1])];
+      if(!n1||!n2)continue;
+
+      // Check if edge endpoints are within bounding box
+      const inBox=(n1[1]>=minLat&&n1[1]<=maxLat&&n1[0]>=minLon&&n1[0]<=maxLon)||
+                  (n2[1]>=minLat&&n2[1]<=maxLat&&n2[0]>=minLon&&n2[0]<=maxLon);
+      if(!inBox)continue;
+
+      // Calculate distance from edge midpoint to user lane segment
+      const midLat=(n1[1]+n2[1])/2,midLon=(n1[0]+n2[0])/2;
+      const d=pointToSegmentDist(midLat,midLon,p1[0],p1[1],p2[0],p2[1]);
+
+      if(d<BUFFER*111000){{ // Convert to ~meters
+        const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
+        covered.add(key);
+      }}
+    }}
+  }}
+
+  // Convert to array of [nodeA,nodeB] pairs
+  const result=[];
+  for(const key of covered){{
+    const[a,b]=key.split('_').map(Number);
+    result.push([a,b]);
+  }}
+  return result;
+}}
+
+// Point to line segment distance (approximate in lat/lng)
+function pointToSegmentDist(px,py,x1,y1,x2,y2){{
+  const dx=x2-x1,dy=y2-y1;
+  if(dx===0&&dy===0)return haversineDistance(px,py,x1,y1);
+  const t=Math.max(0,Math.min(1,((px-x1)*dx+(py-y1)*dy)/(dx*dx+dy*dy)));
+  const projX=x1+t*dx,projY=y1+t*dy;
+  return haversineDistance(px,py,projX,projY);
+}}
+
+function startDrawing(){{
+  if(isDrawing)return;
+  isDrawing=true;
+
+  document.getElementById('drawBtn').style.display='none';
+  document.getElementById('cancelBtn').style.display='inline';
+  document.getElementById('finishBtn').style.display='inline';
+  document.getElementById('drawingStatus').innerHTML='<b style="color:#e91e63">Drawing mode active.</b> Click on the map to add points. Double-click or press Finish to complete.';
+
+  // Create a new polyline for drawing
+  currentDrawLayer=L.polyline([],{{
+    color:'#E91E63',
+    weight:5,
+    opacity:0.8,
+    dashArray:'10,5'
+  }}).addTo(map);
+
+  // Add click handler for drawing
+  map.on('click',onDrawClick);
+  map.on('dblclick',finishDrawing);
+
+  // Change cursor
+  map.getContainer().style.cursor='crosshair';
+}}
+
+function onDrawClick(e){{
+  if(!isDrawing||!currentDrawLayer)return;
+  const latlng=e.latlng;
+  const coords=currentDrawLayer.getLatLngs();
+  coords.push(latlng);
+  currentDrawLayer.setLatLngs(coords);
+
+  const len=calcLaneLength(coords.map(c=>[c.lat,c.lng]));
+  document.getElementById('drawingStatus').innerHTML=
+    '<b style="color:#e91e63">Drawing...</b> Points: '+coords.length+', Length: '+(len/1000).toFixed(2)+' km. Double-click or Finish to complete.';
+}}
+
+function cancelDrawing(){{
+  if(!isDrawing)return;
+  isDrawing=false;
+
+  if(currentDrawLayer){{
+    map.removeLayer(currentDrawLayer);
+    currentDrawLayer=null;
+  }}
+
+  map.off('click',onDrawClick);
+  map.off('dblclick',finishDrawing);
+  map.getContainer().style.cursor='';
+
+  document.getElementById('drawBtn').style.display='inline';
+  document.getElementById('cancelBtn').style.display='none';
+  document.getElementById('finishBtn').style.display='none';
+  document.getElementById('drawingStatus').innerHTML='Drawing cancelled.';
+}}
+
+function finishDrawing(){{
+  if(!isDrawing||!currentDrawLayer)return;
+
+  const coords=currentDrawLayer.getLatLngs();
+  if(coords.length<2){{
+    alert('Please draw at least 2 points to create a lane.');
+    return;
+  }}
+
+  isDrawing=false;
+  map.off('click',onDrawClick);
+  map.off('dblclick',finishDrawing);
+  map.getContainer().style.cursor='';
+
+  // Remove temporary dashed layer
+  map.removeLayer(currentDrawLayer);
+  currentDrawLayer=null;
+
+  document.getElementById('drawBtn').style.display='inline';
+  document.getElementById('cancelBtn').style.display='none';
+  document.getElementById('finishBtn').style.display='none';
+
+  // Prompt for lane name
+  const defaultName='Custom Lane '+(userLaneIdCounter+1);
+  const name=prompt('Enter a name for this lane:',defaultName)||defaultName;
+
+  // Create the lane object
+  const coordsArr=coords.map(c=>[c.lat,c.lng]);
+  const length=calcLaneLength(coordsArr);
+  const edges=findCoveredEdges(coordsArr);
+
+  const lane={{
+    id:userLaneIdCounter++,
+    name:name,
+    coords:coordsArr,
+    length:length,
+    active:true,
+    layer:null,
+    edges:edges
+  }};
+
+  // Create the visual layer
+  lane.layer=L.polyline(coords,{{
+    color:'#E91E63',
+    weight:5,
+    opacity:0.85
+  }});
+  lane.layer.bindPopup('<b>'+name+'</b><br>Length: '+(length/1000).toFixed(2)+' km<br>Matched edges: '+edges.length);
+  lane.layer.on('click',function(e){{
+    L.DomEvent.stopPropagation(e);
+  }});
+  userLanesLyrGroup.addLayer(lane.layer);
+
+  userLanes.push(lane);
+
+  document.getElementById('drawingStatus').innerHTML='<span style="color:#27ae60">Lane "'+name+'" created! ('+edges.length+' road edges matched)</span>';
+
+  buildUserLaneList();
+  invalidateUserLaneComputation();
+}}
+
+function buildUserLaneList(){{
+  document.getElementById('userLaneCount').textContent=userLanes.length;
+  const container=document.getElementById('userLaneList');
+  if(userLanes.length===0){{
+    container.innerHTML='<p style="color:#999;font-size:.85em">No custom lanes drawn yet. Use "Start Drawing" to create one.</p>';
+    return;
+  }}
+
+  container.innerHTML=userLanes.map(lane=>{{
+    const activeClass=lane.active?'active':'';
+    const toggleBtn=lane.active?'Disable':'Enable';
+    return '<div class="user-lane '+activeClass+'" id="ulane-'+lane.id+'">'+
+      '<div class="lane-header">'+
+      '<span class="lane-name">'+lane.name+'</span>'+
+      '<span class="lane-length">'+(lane.length/1000).toFixed(2)+' km</span>'+
+      '</div>'+
+      '<div class="lane-actions">'+
+      '<button onclick="toggleUserLane('+lane.id+')">'+toggleBtn+'</button>'+
+      '<button onclick="zoomToUserLane('+lane.id+')">Zoom</button>'+
+      '<button onclick="renameUserLane('+lane.id+')">Rename</button>'+
+      '<button class="del" onclick="deleteUserLane('+lane.id+')">Delete</button>'+
+      '</div>'+
+      '<div style="font-size:.8em;color:#666;margin-top:4px">'+lane.edges.length+' road edges matched</div>'+
+      '</div>';
+  }}).join('');
+}}
+
+function toggleUserLane(id){{
+  const lane=userLanes.find(l=>l.id===id);
+  if(!lane)return;
+  lane.active=!lane.active;
+
+  if(lane.active){{
+    lane.layer.setStyle({{opacity:0.85}});
+    userLanesLyrGroup.addLayer(lane.layer);
+  }}else{{
+    lane.layer.setStyle({{opacity:0.3}});
+  }}
+
+  buildUserLaneList();
+  invalidateUserLaneComputation();
+}}
+
+function zoomToUserLane(id){{
+  const lane=userLanes.find(l=>l.id===id);
+  if(!lane||!lane.layer)return;
+  map.fitBounds(lane.layer.getBounds(),{{padding:[50,50]}});
+}}
+
+function renameUserLane(id){{
+  const lane=userLanes.find(l=>l.id===id);
+  if(!lane)return;
+  const newName=prompt('Enter new name:',lane.name);
+  if(newName&&newName.trim()){{
+    lane.name=newName.trim();
+    lane.layer.setPopupContent('<b>'+lane.name+'</b><br>Length: '+(lane.length/1000).toFixed(2)+' km<br>Matched edges: '+lane.edges.length);
+    buildUserLaneList();
+  }}
+}}
+
+function deleteUserLane(id){{
+  const idx=userLanes.findIndex(l=>l.id===id);
+  if(idx<0)return;
+  if(!confirm('Delete lane "'+userLanes[idx].name+'"?'))return;
+
+  const lane=userLanes[idx];
+  if(lane.layer){{
+    userLanesLyrGroup.removeLayer(lane.layer);
+  }}
+  userLanes.splice(idx,1);
+  buildUserLaneList();
+  invalidateUserLaneComputation();
+}}
+
+function invalidateUserLaneComputation(){{
+  // Clear computed results when user lanes change
+  computedAcc=null;
+  computedK=null;
+  computedTheta=null;
+  computedSel=null;
+  updateAreaColors();
+}}
+
+// === EXPORT/IMPORT USER LANES ===
+function exportUserLanes(){{
+  if(userLanes.length===0){{
+    alert('No lanes to export. Draw some lanes first!');
+    return;
+  }}
+
+  const features=userLanes.map(lane=>({{
+    type:'Feature',
+    properties:{{
+      name:lane.name,
+      length_m:Math.round(lane.length),
+      active:lane.active
+    }},
+    geometry:{{
+      type:'LineString',
+      coordinates:lane.coords.map(c=>[c[1],c[0]]) // GeoJSON uses [lon,lat]
+    }}
+  }}));
+
+  const geojson={{
+    type:'FeatureCollection',
+    features:features
+  }};
+
+  const blob=new Blob([JSON.stringify(geojson,null,2)],{{type:'application/json'}});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download='custom_bike_lanes.geojson';
+  a.click();
+  URL.revokeObjectURL(url);
+}}
+
+function importUserLanes(event){{
+  const file=event.target.files[0];
+  if(!file)return;
+
+  const reader=new FileReader();
+  reader.onload=function(e){{
+    try{{
+      const geojson=JSON.parse(e.target.result);
+      if(!geojson.features||!Array.isArray(geojson.features)){{
+        throw new Error('Invalid GeoJSON: missing features array');
+      }}
+
+      let imported=0;
+      for(const feat of geojson.features){{
+        if(feat.geometry?.type!=='LineString')continue;
+
+        const coords=feat.geometry.coordinates.map(c=>[c[1],c[0]]); // Convert [lon,lat] to [lat,lon]
+        if(coords.length<2)continue;
+
+        const name=feat.properties?.name||('Imported Lane '+(userLaneIdCounter+1));
+        const length=calcLaneLength(coords);
+        const edges=findCoveredEdges(coords);
+
+        const lane={{
+          id:userLaneIdCounter++,
+          name:name,
+          coords:coords,
+          length:length,
+          active:feat.properties?.active!==false,
+          layer:null,
+          edges:edges
+        }};
+
+        lane.layer=L.polyline(coords.map(c=>[c[0],c[1]]),{{
+          color:'#E91E63',
+          weight:5,
+          opacity:lane.active?0.85:0.3
+        }});
+        lane.layer.bindPopup('<b>'+lane.name+'</b><br>Length: '+(length/1000).toFixed(2)+' km<br>Matched edges: '+edges.length);
+        userLanesLyrGroup.addLayer(lane.layer);
+        userLanes.push(lane);
+        imported++;
+      }}
+
+      buildUserLaneList();
+      invalidateUserLaneComputation();
+      alert('Imported '+imported+' lane(s) successfully!');
+    }}catch(err){{
+      alert('Error importing GeoJSON: '+err.message);
+    }}
+  }};
+  reader.readAsText(file);
+  event.target.value=''; // Reset file input
+}}
+
+// Modify dijkstra to include user lanes
+const originalDijkstra=dijkstra;
+dijkstra=function(origIdx,destIdx,k){{
+  // Get edges covered by active user lanes
+  const userEdgeSet=new Set();
+  for(const lane of userLanes){{
+    if(!lane.active)continue;
+    for(const e of lane.edges){{
+      const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
+      userEdgeSet.add(key);
+    }}
+  }}
+
+  // If no user lanes, use original
+  if(userEdgeSet.size===0){{
+    return originalDijkstra(origIdx,destIdx,k);
+  }}
+
+  // Otherwise, run modified Dijkstra that includes user lane edges as bike lanes
+  const oc=CENTROIDS[origIdx],dc=CENTROIDS[destIdx];
+  let oNode=null,dNode=null,oD=Infinity,dD=Infinity;
+  for(const[nid,c]of Object.entries(NODES)){{
+    const d1=(c[0]-oc[0])**2+(c[1]-oc[1])**2;
+    const d2=(c[0]-dc[0])**2+(c[1]-dc[1])**2;
+    if(d1<oD){{oD=d1;oNode=nid;}}
+    if(d2<dD){{dD=d2;dNode=nid;}}
+  }}
+  if(!oNode||!dNode)return null;
+
+  // Build set of edges covered by selected wishing lanes
+  const wishingEdgeSet=new Set();
+  for(const lid of sel){{
+    const edges=WISHING_EDGES[lid]||[];
+    for(const e of edges){{
+      const a=Math.min(e[0],e[1]),b=Math.max(e[0],e[1]);
+      wishingEdgeSet.add(a+'_'+b);
+    }}
+  }}
+
+  // Build adjacency with edge info - mark edges covered by wishing lanes OR user lanes as bike lanes
+  const adj={{}};
+  for(const e of EDGES){{
+    const len=e[2];
+    let bike=!!e[3];
+    const a=String(e[0]),b=String(e[1]);
+    const edgeKey=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
+    if(wishingEdgeSet.has(edgeKey)||userEdgeSet.has(edgeKey))bike=true;
+    const w=bike?len:len*k;
+    if(!adj[a])adj[a]=[];
+    if(!adj[b])adj[b]=[];
+    adj[a].push({{n:b,w:w,len:len,bike:bike,eKey:edgeKey}});
+    adj[b].push({{n:a,w:w,len:len,bike:bike,eKey:edgeKey}});
+  }}
+
+  const dist={{}},prev={{}},prevEdge={{}},visited=new Set();
+  dist[oNode]=0;
+  let pq=[[0,oNode]];
+
+  while(pq.length){{
+    const[cd,cur]=pq.shift();
+    if(visited.has(cur))continue;
+    visited.add(cur);
+    if(cur===dNode)break;
+    for(const{{n,w,len,bike,eKey}}of(adj[cur]||[])){{
+      if(visited.has(n))continue;
+      const nd=cd+w;
+      if(dist[n]===undefined||nd<dist[n]){{
+        dist[n]=nd;prev[n]=cur;prevEdge[n]={{len:len,bike:bike,eKey:eKey}};
+        let ins=pq.findIndex(x=>x[0]>nd);
+        if(ins<0)ins=pq.length;
+        pq.splice(ins,0,[nd,n]);
+      }}
+    }}
+  }}
+
+  if(dist[dNode]===undefined)return null;
+
+  const segments=[];
+  let c=dNode;
+  while(prev[c]!==undefined){{
+    const p=prev[c];
+    const e=prevEdge[c];
+    const geom=EDGE_GEOMS[e.eKey];
+    if(geom&&geom.length>=2){{
+      const fromNode=NODES[p],toNode=NODES[c];
+      const g0=geom[0],gN=geom[geom.length-1];
+      const d0=Math.abs(g0[0]-fromNode[0])+Math.abs(g0[1]-fromNode[1]);
+      const dN=Math.abs(gN[0]-fromNode[0])+Math.abs(gN[1]-fromNode[1]);
+      const coords=(d0<=dN)?geom:geom.slice().reverse();
+      segments.unshift({{geom:coords,len:e.len,bike:e.bike}});
+    }}else{{
+      segments.unshift({{from:NODES[p],to:NODES[c],len:e.len,bike:e.bike}});
+    }}
+    c=p;
+  }}
+  return {{segments:segments}};
+}};
+
+// Modify computeAccessibility to include user lanes
+const originalComputeAccessibility=computeAccessibility;
+computeAccessibility=function(){{
+  const k=currentK;
+  const theta=currentTheta;
+  const selArr=[...sel].sort();
+
+  // Include user lane IDs in the cache key
+  const userActiveIds=userLanes.filter(l=>l.active).map(l=>l.id).sort();
+  const selKey=JSON.stringify({{wishing:selArr,user:userActiveIds}});
+
+  const btn=document.getElementById("computeBtn");
+  const prog=document.getElementById("computeProgress");
+  const results=document.getElementById("computeResults");
+
+  btn.disabled=true;
+  btn.textContent="Computing...";
+  prog.innerHTML="<p>Building network with "+sel.size+" wishing lanes + "+userActiveIds.length+" custom lanes...</p>";
+
+  setTimeout(()=>{{
+    // Build adjacency list with selected lanes AND user lanes
+    const adj={{}};
+    for(const e of EDGES){{
+      const len=e[2],bike=!!e[3];
+      const w=bike?len:len*k;
+      const a=String(e[0]),b=String(e[1]);
+      if(!adj[a])adj[a]=[];
+      if(!adj[b])adj[b]=[];
+      adj[a].push({{n:b,w:w,len:len}});
+      adj[b].push({{n:a,w:w,len:len}});
+    }}
+
+    // Build edge length lookup
+    const edgeLenLookup={{}};
+    for(const e of EDGES){{
+      const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
+      edgeLenLookup[key]=e[2];
+    }}
+
+    // Mark edges covered by selected wishing lanes as bike lanes
+    for(const lid of sel){{
+      const edges=WISHING_EDGES[lid]||[];
+      for(const e of edges){{
+        const a=String(e[0]),b=String(e[1]);
+        const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
+        const len=edgeLenLookup[key]||0;
+        if(adj[a])adj[a]=adj[a].map(x=>x.n===b?{{...x,w:len}}:x);
+        if(adj[b])adj[b]=adj[b].map(x=>x.n===a?{{...x,w:len}}:x);
+      }}
+    }}
+
+    // Mark edges covered by active user lanes as bike lanes
+    for(const lane of userLanes){{
+      if(!lane.active)continue;
+      for(const e of lane.edges){{
+        const a=String(e[0]),b=String(e[1]);
+        const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
+        const len=edgeLenLookup[key]||0;
+        if(adj[a])adj[a]=adj[a].map(x=>x.n===b?{{...x,w:len}}:x);
+        if(adj[b])adj[b]=adj[b].map(x=>x.n===a?{{...x,w:len}}:x);
+      }}
+    }}
+
+    const n=AREA_NODES.length;
+    const acc_orig=new Array(n).fill(0);
+    const acc_dest=new Array(n).fill(0);
+    let totalN=0;
+    let processed=0;
+
+    function processArea(i){{
+      if(i>=n){{
+        computedAcc={{orig:acc_orig,dest:acc_dest,totalN:totalN}};
+        computedK=k;
+        computedTheta=theta;
+        computedSel=selKey;
+
+        let improvementPct=0;
+        let baselineN=0;
+        if(baselineAcc && baselineK===k && baselineTheta===theta){{
+          baselineN=baselineAcc.totalN;
+          if(baselineN>0){{
+            improvementPct=100*(totalN-baselineN)/baselineN;
+          }}
+        }}
+
+        btn.disabled=false;
+        btn.textContent="Compute Accessibility";
+        prog.innerHTML="<p style='color:#27ae60'>Computation complete!</p>";
+
+        const userCount=userLanes.filter(l=>l.active).length;
+        results.innerHTML=
+          '<div class="path-stats">'+
+          '<p><b>Results (K='+k+', &theta;='+theta+'):</b></p>'+
+          '<p style="font-size:.85em">'+sel.size+' wishing lanes + '+userCount+' custom lanes</p>'+
+          '<table>'+
+          '<tr><td>Baseline N:</td><td>'+baselineN.toExponential(3)+'</td></tr>'+
+          '<tr><td>With selected lanes:</td><td>'+totalN.toExponential(3)+'</td></tr>'+
+          '<tr><td>Improvement:</td><td style="color:'+(improvementPct>=0?'#27ae60':'#e74c3c')+';font-weight:bold">'+(improvementPct>=0?'+':'')+improvementPct.toFixed(3)+'%</td></tr>'+
+          '</table>'+
+          '<p style="font-size:.85em;margin-top:8px">Switch to "Change (%)" mode to see per-area improvements.</p>'+
+          '</div>';
+        updateAreaColors();
+
+        // Update user lane impact panel
+        if(userCount>0){{
+          document.getElementById('userLaneImpact').innerHTML=
+            '<div class="impact-box'+(improvementPct<0?' negative':'')+'">'+
+            '<h4>Impact of Custom Lanes</h4>'+
+            '<p>Your '+userCount+' custom lane(s) '+
+            (improvementPct>=0?'improve':'reduce')+' accessibility by <b>'+(improvementPct>=0?'+':'')+improvementPct.toFixed(3)+'%</b></p>'+
+            '<p style="font-size:.85em;color:#666">(Combined with '+sel.size+' selected wishing lanes)</p>'+
+            '</div>';
+        }}else{{
+          document.getElementById('userLaneImpact').innerHTML='';
+        }}
+
+        return;
+      }}
+
+      const src=String(AREA_NODES[i]);
+      const dist={{}},visited=new Set();
+      dist[src]=0;
+      let pq=[[0,src]];
+      while(pq.length){{
+        const[cd,cur]=pq.shift();
+        if(visited.has(cur))continue;
+        visited.add(cur);
+        for(const{{n:nb,w}}of(adj[cur]||[])){{
+          if(visited.has(nb))continue;
+          const nd=cd+w;
+          if(dist[nb]===undefined||nd<dist[nb]){{
+            dist[nb]=nd;
+            let ins=pq.findIndex(x=>x[0]>nd);
+            if(ins<0)ins=pq.length;
+            pq.splice(ins,0,[nd,nb]);
+          }}
+        }}
+      }}
+
+      for(let j=0;j<n;j++){{
+        if(i===j)continue;
+        const dstNode=String(AREA_NODES[j]);
+        if(dist[dstNode]!==undefined){{
+          const tau=Math.max(dist[dstNode]/1000,0.1);
+          const decay=Math.pow(tau,theta);
+          acc_orig[i]+=AREA_EMP[j]*decay;
+          acc_dest[j]+=AREA_POP[i]*decay;
+          totalN+=AREA_POP[i]*AREA_EMP[j]*decay;
+        }}
+      }}
+
+      processed++;
+      if(processed%10===0){{
+        prog.innerHTML="<p>Processing areas: "+processed+"/"+n+" ("+Math.round(100*processed/n)+"%)</p>";
+      }}
+      setTimeout(()=>processArea(i+1),0);
+    }}
+
+    processArea(0);
+  }},50);
+}};
+
 // Initial render
 buildLaneList();
+buildUserLaneList();
 updateComputePanel();
 // Compute baseline on startup (shows loading message briefly)
 setTimeout(()=>{{
