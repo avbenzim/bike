@@ -1527,22 +1527,6 @@ setTimeout(()=>{{
       <li><b>Change Mode</b>: Shows percentage improvement from baseline after adding selected lanes</li>
     </ul>
 
-    <h2 style="color:#34495e">Close</h2>
-    <p>This methodology provides a systematic, data-driven approach to prioritizing bike lane investments. By combining:</p>
-    <ul>
-      <li><b>Gravity model physics</b>: Captures the fundamental relationship between accessibility, distance, and demand</li>
-      <li><b>Network analysis</b>: Ensures realistic routing through the actual road/bike lane network</li>
-      <li><b>Sensitivity analysis</b>: Tests robustness across different cyclist behavior assumptions (K) and trip distance preferences (&theta;)</li>
-      <li><b>Interactive visualization</b>: Enables planners to explore scenarios and understand trade-offs</li>
-    </ul>
-    <p>The rankings should be considered alongside other factors not modeled here, including:</p>
-    <ul>
-      <li>Construction costs and feasibility</li>
-      <li>Safety considerations and accident data</li>
-      <li>Equity and access for underserved neighborhoods</li>
-      <li>Integration with public transit</li>
-      <li>Political and community priorities</li>
-    </ul>
   </div>
 </div>
 </body>
