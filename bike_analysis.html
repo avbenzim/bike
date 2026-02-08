@@ -54,19 +54,19 @@ button:hover{background:#2980b9}
 .path-stats table{width:100%;border-collapse:collapse;font-size:.9em}
 .path-stats td{padding:3px 6px}
 .path-stats td:last-child{text-align:right;font-weight:700}
-.user-lane{padding:8px;margin:4px 0;background:#fff;border-radius:4px;border:2px solid #e91e63;display:flex;flex-direction:column;gap:4px}
-.user-lane.active{background:#fce4ec;border-color:#c2185b}
+.user-lane{padding:8px;margin:4px 0;background:#fff;border-radius:4px;border:2px solid #6a1b9a;display:flex;flex-direction:column;gap:4px}
+.user-lane.active{background:#f3e5f5;border-color:#4a148c}
 .user-lane .lane-header{display:flex;justify-content:space-between;align-items:center}
-.user-lane .lane-name{font-weight:700;color:#c2185b;flex:1}
+.user-lane .lane-name{font-weight:700;color:#4a148c;flex:1}
 .user-lane .lane-length{color:#666;font-size:.85em;margin-right:8px}
 .user-lane .lane-actions{display:flex;gap:4px}
-.user-lane .lane-actions button{padding:3px 8px;font-size:11px;background:#e91e63;color:#fff;border:none;border-radius:3px;cursor:pointer}
-.user-lane .lane-actions button:hover{background:#c2185b}
+.user-lane .lane-actions button{padding:3px 8px;font-size:11px;background:#6a1b9a;color:#fff;border:none;border-radius:3px;cursor:pointer}
+.user-lane .lane-actions button:hover{background:#4a148c}
 .user-lane .lane-actions button.del{background:#e74c3c}
 .user-lane .lane-actions button.del:hover{background:#c0392b}
-.draw-controls{background:#fce4ec;padding:10px;border-radius:5px;margin-bottom:10px;border:1px solid #e91e63}
+.draw-controls{background:#f3e5f5;padding:10px;border-radius:5px;margin-bottom:10px;border:1px solid #6a1b9a}
 .draw-controls button{margin:4px 2px}
-.draw-note{background:#f8bbd9;padding:8px;border-radius:4px;margin-bottom:10px;font-size:.85em;border-left:3px solid #e91e63}
+.draw-note{background:#e1bee7;padding:8px;border-radius:4px;margin-bottom:10px;font-size:.85em;border-left:3px solid #6a1b9a}
 .impact-box{background:#e8f5e9;padding:10px;border-radius:5px;margin-top:10px;border:1px solid #4caf50}
 .impact-box.negative{background:#ffebee;border-color:#f44336}
 .impact-box h4{margin:0 0 8px;color:#2e7d32}
@@ -150,7 +150,7 @@ button:hover{background:#2980b9}
       <div class="legend-item"><div class="legend-line" style="background:#81C784"></div>Under construction</div>
       <div class="legend-item"><div class="legend-line" style="background:#FF9800"></div>Wishing list</div>
       <div class="legend-item"><div class="legend-line" style="background:#9b59b6;height:6px"></div>Selected lane</div>
-      <div class="legend-item"><div class="legend-line" style="background:#E91E63;height:6px"></div>User-drawn lane</div>
+      <div class="legend-item"><div class="legend-line" style="background:#6a1b9a;height:6px"></div>User-drawn lane</div>
       <div class="legend-item"><div class="legend-line" style="background:#1565C0;height:6px"></div>Path on bike lane</div>
       <div class="legend-item"><div class="legend-line" style="background:#E65100;height:6px"></div>Path on road</div>
       <hr style="margin:8px 0;border:none;border-top:1px solid #ccc">
@@ -191,7 +191,7 @@ button:hover{background:#2980b9}
         <button onclick="finishDrawing()" id="finishBtn" style="display:none;background:#27ae60">Finish Lane</button>
       </div>
       <div id="drawingStatus" style="margin:8px 0;font-size:.85em;color:#666"></div>
-      <h4 style="margin:12px 0 8px;color:#c2185b">Your Drawn Lanes (<span id="userLaneCount">0</span>)</h4>
+      <h4 style="margin:12px 0 8px;color:#4a148c">Your Drawn Lanes (<span id="userLaneCount">0</span>)</h4>
       <div id="userLaneList"></div>
       <div id="userLaneImpact"></div>
       <div class="export-section">
@@ -243,7 +243,7 @@ button:hover{background:#2980b9}
               <button onclick="clearPathPoint('dest')" style="padding:6px 10px">Clear</button>
             </div>
           </div>
-          <div id="pickingStatus" style="font-size:.85em;color:#e91e63;margin-bottom:8px"></div>
+          <div id="pickingStatus" style="font-size:.85em;color:#6a1b9a;margin-bottom:8px"></div>
         </div>
         <button onclick="showPath()">Show path</button>
       </div>
@@ -1382,11 +1382,11 @@ function startDrawing(){
   document.getElementById('drawBtn').style.display='none';
   document.getElementById('cancelBtn').style.display='inline';
   document.getElementById('finishBtn').style.display='inline';
-  document.getElementById('drawingStatus').innerHTML='<b style="color:#e91e63">Drawing mode active.</b> Click on the map to add points. Double-click or press Finish to complete.';
+  document.getElementById('drawingStatus').innerHTML='<b style="color:#6a1b9a">Drawing mode active.</b> Click on the map to add points. Double-click or press Finish to complete.';
 
   // Create a new polyline for drawing
   currentDrawLayer=L.polyline([],{
-    color:'#E91E63',
+    color:'#6a1b9a',
     weight:5,
     opacity:0.8,
     dashArray:'10,5'
@@ -1430,7 +1430,7 @@ function onDrawClick(e){
   const len=calcLaneLength(coords.map(c=>[c.lat,c.lng]));
   const snapStatus=snap.snapped?' <span style="color:#27ae60">(snapped to '+snap.type+')</span>':'';
   document.getElementById('drawingStatus').innerHTML=
-    '<b style="color:#e91e63">Drawing...</b> Points: '+coords.length+', Length: '+(len/1000).toFixed(2)+' km.'+snapStatus+' Double-click or Finish to complete.';
+    '<b style="color:#6a1b9a">Drawing...</b> Points: '+coords.length+', Length: '+(len/1000).toFixed(2)+' km.'+snapStatus+' Double-click or Finish to complete.';
 }
 
 function clearSnapMarkers(){
@@ -1508,7 +1508,7 @@ function finishDrawing(){
 
   // Create the visual layer
   lane.layer=L.polyline(coords,{
-    color:'#E91E63',
+    color:'#6a1b9a',
     weight:5,
     opacity:0.85
   });
@@ -1678,7 +1678,7 @@ function importUserLanes(event){
         };
 
         lane.layer=L.polyline(coords.map(c=>[c[0],c[1]]),{
-          color:'#E91E63',
+          color:'#6a1b9a',
           weight:5,
           opacity:lane.active?0.85:0.3
         });
