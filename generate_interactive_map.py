@@ -1588,14 +1588,25 @@ function calcLaneLength(coords){{
   return total;
 }}
 
-// Find road edges near a user-drawn lane (similar to wishing lanes matching)
+// Find road edges covered by a user-drawn lane (same logic as wishing lanes)
+// Uses overlap ratio validation: edge matches if >50% of its length is within buffer
 function findCoveredEdges(coords){{
   const covered=new Set();
-  const BUFFER_METERS=50; // 50m buffer for matching
-  let minDistFound=Infinity;
-  let closestEdge=null;
+  const BUFFER_METERS=15; // Same 15m buffer as wishing lanes (was 50m - too large!)
+  const OVERLAP_THRESHOLD=0.5; // At least 50% of edge must be covered (same as wishing lanes)
+  const SAMPLE_SPACING=5; // Sample points every 5 meters along the edge
 
-  // For each edge in the network, check if it's close to the user lane
+  // Helper: get minimum distance from a point to the user lane polyline
+  function distToUserLane(lat,lon){{
+    let minD=Infinity;
+    for(let i=0;i<coords.length-1;i++){{
+      const d=pointToSegmentDist(lat,lon,coords[i][0],coords[i][1],coords[i+1][0],coords[i+1][1]);
+      if(d<minD)minD=d;
+    }}
+    return minD;
+  }}
+
+  // For each edge in the network, compute overlap ratio
   for(const e of EDGES){{
     const n1=NODES[String(e[0])],n2=NODES[String(e[1])];
     if(!n1||!n2)continue;
@@ -1603,55 +1614,37 @@ function findCoveredEdges(coords){{
     // Edge endpoints in lat/lon (NODES is [lon,lat])
     const e1Lat=n1[1],e1Lon=n1[0];
     const e2Lat=n2[1],e2Lon=n2[0];
-    const midLat=(e1Lat+e2Lat)/2,midLon=(e1Lon+e2Lon)/2;
 
-    // Check if edge midpoint or endpoints are close to any user lane segment
-    let isClose=false;
-    let minEdgeDist=Infinity;
-    for(let i=0;i<coords.length-1;i++){{
-      const p1=coords[i],p2=coords[i+1]; // [lat,lng]
+    // Calculate edge length
+    const edgeLen=haversineDistance(e1Lat,e1Lon,e2Lat,e2Lon);
+    if(edgeLen<1)continue; // Skip tiny edges
 
-      // Distance from edge midpoint to user segment
-      const dMid=pointToSegmentDist(midLat,midLon,p1[0],p1[1],p2[0],p2[1]);
-      minEdgeDist=Math.min(minEdgeDist,dMid);
-      if(dMid<BUFFER_METERS){{isClose=true;}}
+    // Sample points along the edge and check how many are within buffer of user lane
+    const numSamples=Math.max(3,Math.ceil(edgeLen/SAMPLE_SPACING));
+    let coveredSamples=0;
 
-      // Distance from edge endpoint 1 to user segment
-      const d1=pointToSegmentDist(e1Lat,e1Lon,p1[0],p1[1],p2[0],p2[1]);
-      minEdgeDist=Math.min(minEdgeDist,d1);
-      if(d1<BUFFER_METERS){{isClose=true;}}
+    for(let s=0;s<=numSamples;s++){{
+      const t=s/numSamples;
+      const sampleLat=e1Lat+t*(e2Lat-e1Lat);
+      const sampleLon=e1Lon+t*(e2Lon-e1Lon);
 
-      // Distance from edge endpoint 2 to user segment
-      const d2=pointToSegmentDist(e2Lat,e2Lon,p1[0],p1[1],p2[0],p2[1]);
-      minEdgeDist=Math.min(minEdgeDist,d2);
-      if(d2<BUFFER_METERS){{isClose=true;}}
-
-      // Also check reverse: user lane points close to the edge
-      const up1=pointToSegmentDist(p1[0],p1[1],e1Lat,e1Lon,e2Lat,e2Lon);
-      minEdgeDist=Math.min(minEdgeDist,up1);
-      if(up1<BUFFER_METERS){{isClose=true;}}
-      const up2=pointToSegmentDist(p2[0],p2[1],e1Lat,e1Lon,e2Lat,e2Lon);
-      minEdgeDist=Math.min(minEdgeDist,up2);
-      if(up2<BUFFER_METERS){{isClose=true;}}
+      const dist=distToUserLane(sampleLat,sampleLon);
+      if(dist<=BUFFER_METERS){{
+        coveredSamples++;
+      }}
     }}
 
-    if(minEdgeDist<minDistFound){{
-      minDistFound=minEdgeDist;
-      closestEdge=e;
-    }}
+    // Calculate overlap ratio (what fraction of edge is within buffer)
+    const overlapRatio=coveredSamples/(numSamples+1);
 
-    if(isClose){{
+    // Match if >50% of edge is covered (same threshold as wishing lanes)
+    if(overlapRatio>=OVERLAP_THRESHOLD){{
       const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
       covered.add(key);
     }}
   }}
 
-  console.log('findCoveredEdges: found '+covered.size+' edges for lane with '+coords.length+' points');
-  console.log('findCoveredEdges: closest edge distance = '+minDistFound.toFixed(1)+'m (threshold: '+BUFFER_METERS+'m)');
-  if(closestEdge){{
-    const cn1=NODES[String(closestEdge[0])],cn2=NODES[String(closestEdge[1])];
-    console.log('findCoveredEdges: closest edge nodes: ['+cn1[1].toFixed(5)+','+cn1[0].toFixed(5)+'] to ['+cn2[1].toFixed(5)+','+cn2[0].toFixed(5)+']');
-  }}
+  console.log('findCoveredEdges: found '+covered.size+' edges for lane with '+coords.length+' points (buffer='+BUFFER_METERS+'m, threshold='+OVERLAP_THRESHOLD*100+'%)');
 
   // Convert to array of [nodeA,nodeB] pairs
   const result=[];
