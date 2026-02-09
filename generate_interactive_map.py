@@ -849,8 +849,10 @@ areasLyr=L.geoJSON(AREAS,{{
     const p=f.properties;
     const aid=p.area_id;
     layer.on('click',function(e){{
-      // Don't show popup when drawing a lane or picking path points
-      if(isDrawing||pickingPointFor)return;
+      // Don't show popup when drawing a lane
+      if(isDrawing)return;
+      // If picking path points, forward the click to the point picker
+      if(pickingPointFor){{onPathPointClick(e);return;}}
       const name=AREA_NAMES[aid]||"Area "+aid;
       const mode=getAccMode();
       let html="<b>"+name+"</b><br>"+
@@ -886,7 +888,8 @@ if(COMPLETED.features.length)
     onEachFeature:(f,l)=>{{
       const content="<b>Existing:</b> "+(f.properties.Name||"");
       l.on('click',function(e){{
-        if(isDrawing||pickingPointFor)return;
+        if(isDrawing)return;
+        if(pickingPointFor){{onPathPointClick(e);return;}}
         L.popup().setLatLng(e.latlng).setContent(content).openOn(map);
       }});
     }}
@@ -898,7 +901,8 @@ if(CONSTRUCTION.features.length)
     onEachFeature:(f,l)=>{{
       const content="<b>Under construction:</b> "+(f.properties.Name||"");
       l.on('click',function(e){{
-        if(isDrawing||pickingPointFor)return;
+        if(isDrawing)return;
+        if(pickingPointFor){{onPathPointClick(e);return;}}
         L.popup().setLatLng(e.latlng).setContent(content).openOn(map);
       }});
     }}
@@ -912,9 +916,11 @@ wishLyr=L.geoJSON(WISHING,{{
   }},
   onEachFeature:(f,layer)=>{{
     const lid=f.properties.lane_id;
-    layer.on("click",()=>{{
-      // Don't toggle selection when drawing a lane or picking path points
-      if(isDrawing||pickingPointFor)return;
+    layer.on("click",(e)=>{{
+      // Don't toggle selection when drawing a lane
+      if(isDrawing)return;
+      // If picking path points, forward the click to the point picker
+      if(pickingPointFor){{onPathPointClick(e);return;}}
       sel.has(lid)?sel.delete(lid):sel.add(lid);refresh();
     }});
     layer.on("mouseover",()=>showInfo(lid));
