@@ -6,6 +6,7 @@ import pandas as pd
 import numpy as np
 import networkx as nx
 import json
+import subprocess
 from pathlib import Path
 from scipy.spatial import cKDTree
 from pyproj import Transformer
@@ -13,6 +14,19 @@ import fiona
 import warnings
 
 warnings.filterwarnings('ignore')
+
+def get_version():
+    """Get version from git commit hash."""
+    try:
+        result = subprocess.run(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            capture_output=True, text=True, cwd=script_dir
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except:
+        pass
+    return 'dev'
 
 script_dir = Path(__file__).parent
 fiona.drvsupport.supported_drivers['KML'] = 'rw'
@@ -438,6 +452,9 @@ def main():
         _, idx = nt.query([c.x, c.y])
         area_center_nodes.append(ni[idx])
 
+    version = get_version()
+    print(f"Version: {version}")
+
     html = generate_html(
         areas_geojson=areas_geojson,
         completed_geojson=completed_geojson,
@@ -456,6 +473,7 @@ def main():
         centroids_wgs=centroids_wgs,
         k_values=K_VALUES,
         theta_values=THETA_VALUES,
+        version=version,
     )
 
     out_path = script_dir / 'bike_analysis.html'
@@ -468,7 +486,7 @@ def generate_html(*, areas_geojson, completed_geojson, construction_geojson,
                   wishing_geojson, lane_names, area_names,
                   area_pop, area_emp, area_center_nodes,
                   nodes_wgs, edges_list, edge_geoms_wgs, wishing_edges, wishing_geoms, centroids_wgs,
-                  k_values, theta_values):
+                  k_values, theta_values, version='dev'):
 
     # Serialize data compactly
     def js_json(obj):
@@ -566,7 +584,7 @@ button:hover{{background:#2980b9}}
 </head>
 <body>
 <div class="header">
-  <h1>Jerusalem Bike Lane Analysis</h1>
+  <h1>Jerusalem Bike Lane Analysis <span style="font-size:12px;color:#7f8c8d;font-weight:normal">v{version}</span></h1>
   <span id="totalImp">Estimated total improvement: 0%</span>
 </div>
 <div class="formula">
@@ -1240,6 +1258,7 @@ function showPath(){{
           color="#E91E63"; // Pink for user-drawn lanes
           totalUserLaneDist+=seg.len;
           totalLaneDist+=seg.len;
+          console.log('Drawing USER LANE segment (pink):', seg.len.toFixed(0)+'m');
         }}else if(seg.bike){{
           color="#1565C0"; // Blue for existing/wishing bike lanes
           totalLaneDist+=seg.len;

@@ -76,7 +76,7 @@ button:hover{background:#2980b9}
 </head>
 <body>
 <div class="header">
-  <h1>Jerusalem Bike Lane Analysis</h1>
+  <h1>Jerusalem Bike Lane Analysis <span style="font-size:12px;color:#7f8c8d;font-weight:normal">v9dab50d</span></h1>
   <span id="totalImp">Estimated total improvement: 0%</span>
 </div>
 <div class="formula">
@@ -768,6 +768,7 @@ function showPath(){
           color="#E91E63"; // Pink for user-drawn lanes
           totalUserLaneDist+=seg.len;
           totalLaneDist+=seg.len;
+          console.log('Drawing USER LANE segment (pink):', seg.len.toFixed(0)+'m');
         }else if(seg.bike){
           color="#1565C0"; // Blue for existing/wishing bike lanes
           totalLaneDist+=seg.len;
