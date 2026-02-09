@@ -2462,7 +2462,7 @@ setTimeout(()=>{{
 </script>
 
 <!-- Methodology Modal -->
-<div id="methodModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;justify-content:center;align-items:center">
+<div id="methodModal" onclick="if(event.target===this)this.style.display='none'" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:9999;justify-content:center;align-items:center">
   <div style="background:#fff;max-width:900px;max-height:90vh;overflow-y:auto;padding:30px;border-radius:8px;position:relative;margin:20px">
     <button onclick="document.getElementById('methodModal').style.display='none'" style="position:absolute;top:10px;right:15px;background:none;border:none;font-size:24px;cursor:pointer">&times;</button>
     <h1 style="color:#2c3e50;margin-top:0">Jerusalem Bike Lane Analysis - Methodology</h1>
@@ -2607,6 +2607,9 @@ setTimeout(()=>{{
       <li><b>Change Mode</b>: Shows percentage improvement from baseline after adding selected lanes</li>
     </ul>
 
+    <div style="text-align:center;margin-top:20px">
+      <button onclick="document.getElementById('methodModal').style.display='none'" style="padding:10px 30px;background:#27ae60;color:#fff;border:none;border-radius:4px;font-size:14px;cursor:pointer">Close</button>
+    </div>
   </div>
 </div>
 </body>
