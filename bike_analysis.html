@@ -752,7 +752,7 @@ function showPath(){
     if(result&&result.segments.length>0){
       // Draw segments with different colors
       pathLyrGroup=L.featureGroup();
-      let totalLaneDist=0,totalRoadDist=0;
+      let totalLaneDist=0,totalRoadDist=0,totalUserLaneDist=0;
       for(const seg of result.segments){
         let coords;
         if(seg.geom){
@@ -762,11 +762,21 @@ function showPath(){
           // Regular segment (straight line between nodes)
           coords=[[seg.from[1],seg.from[0]],[seg.to[1],seg.to[0]]];
         }
-        const color=seg.bike?"#1565C0":"#E65100";
+        // User lane edges shown in pink, other bike lanes in blue, roads in orange
+        let color;
+        if(seg.isUserEdge){
+          color="#E91E63"; // Pink for user-drawn lanes
+          totalUserLaneDist+=seg.len;
+          totalLaneDist+=seg.len;
+        }else if(seg.bike){
+          color="#1565C0"; // Blue for existing/wishing bike lanes
+          totalLaneDist+=seg.len;
+        }else{
+          color="#E65100"; // Orange for roads
+          totalRoadDist+=seg.len;
+        }
         const line=L.polyline(coords,{color:color,weight:6,opacity:.85});
         pathLyrGroup.addLayer(line);
-        if(seg.bike)totalLaneDist+=seg.len;
-        else totalRoadDist+=seg.len;
       }
       pathLyrGroup.addTo(map);
       if(pathLyrGroup.getLayers().length>0){
@@ -777,20 +787,32 @@ function showPath(){
       const totalDist=totalLaneDist+totalRoadDist;
       const lanePct=totalDist>0?(100*totalLaneDist/totalDist):0;
       const roadPct=totalDist>0?(100*totalRoadDist/totalDist):0;
-      document.getElementById("pathInfo").innerHTML=
-        '<div class="path-stats">'+
+      const userLanePct=totalDist>0?(100*totalUserLaneDist/totalDist):0;
+      const otherLaneDist=totalLaneDist-totalUserLaneDist;
+      const otherLanePct=totalDist>0?(100*otherLaneDist/totalDist):0;
+
+      let statsHtml='<div class="path-stats">'+
         '<p><b>Path found</b></p>'+
         '<table>'+
         '<tr><td>Total distance:</td><td>'+(totalDist/1000).toFixed(2)+' km</td></tr>'+
-        '<tr><td style="color:#1565C0">On bike lane:</td><td style="color:#1565C0">'+(totalLaneDist/1000).toFixed(2)+' km ('+lanePct.toFixed(1)+'%)</td></tr>'+
-        '<tr><td style="color:#E65100">On road:</td><td style="color:#E65100">'+(totalRoadDist/1000).toFixed(2)+' km ('+roadPct.toFixed(1)+'%)</td></tr>'+
+        '<tr><td style="color:#1565C0">On bike lane:</td><td style="color:#1565C0">'+(totalLaneDist/1000).toFixed(2)+' km ('+lanePct.toFixed(1)+'%)</td></tr>';
+      if(totalUserLaneDist>0){
+        statsHtml+='<tr><td style="color:#E91E63;padding-left:15px">↳ Your drawn lane:</td><td style="color:#E91E63">'+(totalUserLaneDist/1000).toFixed(2)+' km ('+userLanePct.toFixed(1)+'%)</td></tr>';
+      }
+      statsHtml+='<tr><td style="color:#E65100">On road:</td><td style="color:#E65100">'+(totalRoadDist/1000).toFixed(2)+' km ('+roadPct.toFixed(1)+'%)</td></tr>'+
         '<tr><td>Segments:</td><td>'+result.segments.length+'</td></tr>'+
         '</table>'+
-        '<div class="bar">'+
-        '<div class="bar-lane" style="width:'+lanePct+'%"></div>'+
-        '<div class="bar-road" style="width:'+roadPct+'%"></div>'+
+        '<div class="bar">';
+      if(totalUserLaneDist>0){
+        statsHtml+='<div class="bar-user" style="width:'+userLanePct+'%;background:#E91E63"></div>'+
+          '<div class="bar-lane" style="width:'+otherLanePct+'%"></div>';
+      }else{
+        statsHtml+='<div class="bar-lane" style="width:'+lanePct+'%"></div>';
+      }
+      statsHtml+='<div class="bar-road" style="width:'+roadPct+'%"></div>'+
         '</div>'+
         '</div>';
+      document.getElementById("pathInfo").innerHTML=statsHtml;
     }else{
       document.getElementById("pathInfo").innerHTML='<p style="color:#e74c3c">No path found between these areas.</p>';
     }
@@ -1676,12 +1698,13 @@ dijkstra=function(origIdx,destIdx,k){
     let bike=!!e[3];
     const a=String(e[0]),b=String(e[1]);
     const edgeKey=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
-    if(wishingEdgeSet.has(edgeKey)||userEdgeSet.has(edgeKey))bike=true;
+    const isUserEdge=userEdgeSet.has(edgeKey);
+    if(wishingEdgeSet.has(edgeKey)||isUserEdge)bike=true;
     const w=bike?len:len*k;
     if(!adj[a])adj[a]=[];
     if(!adj[b])adj[b]=[];
-    adj[a].push({n:b,w:w,len:len,bike:bike,eKey:edgeKey});
-    adj[b].push({n:a,w:w,len:len,bike:bike,eKey:edgeKey});
+    adj[a].push({n:b,w:w,len:len,bike:bike,eKey:edgeKey,isUserEdge:isUserEdge});
+    adj[b].push({n:a,w:w,len:len,bike:bike,eKey:edgeKey,isUserEdge:isUserEdge});
   }
 
   const dist={},prev={},prevEdge={},visited=new Set();
@@ -1693,11 +1716,11 @@ dijkstra=function(origIdx,destIdx,k){
     if(visited.has(cur))continue;
     visited.add(cur);
     if(cur===dNode)break;
-    for(const{n,w,len,bike,eKey}of(adj[cur]||[])){
+    for(const{n,w,len,bike,eKey,isUserEdge}of(adj[cur]||[])){
       if(visited.has(n))continue;
       const nd=cd+w;
       if(dist[n]===undefined||nd<dist[n]){
-        dist[n]=nd;prev[n]=cur;prevEdge[n]={len:len,bike:bike,eKey:eKey};
+        dist[n]=nd;prev[n]=cur;prevEdge[n]={len:len,bike:bike,eKey:eKey,isUserEdge:isUserEdge};
         let ins=pq.findIndex(x=>x[0]>nd);
         if(ins<0)ins=pq.length;
         pq.splice(ins,0,[nd,n]);
@@ -1719,9 +1742,9 @@ dijkstra=function(origIdx,destIdx,k){
       const d0=Math.abs(g0[0]-fromNode[0])+Math.abs(g0[1]-fromNode[1]);
       const dN=Math.abs(gN[0]-fromNode[0])+Math.abs(gN[1]-fromNode[1]);
       const coords=(d0<=dN)?geom:geom.slice().reverse();
-      segments.unshift({geom:coords,len:e.len,bike:e.bike});
+      segments.unshift({geom:coords,len:e.len,bike:e.bike,isUserEdge:e.isUserEdge});
     }else{
-      segments.unshift({from:NODES[p],to:NODES[c],len:e.len,bike:e.bike});
+      segments.unshift({from:NODES[p],to:NODES[c],len:e.len,bike:e.bike,isUserEdge:e.isUserEdge});
     }
     c=p;
   }
@@ -1784,11 +1807,11 @@ function dijkstraNodes(oNode,dNode,k){
     if(visited.has(cur))continue;
     visited.add(cur);
     if(cur===dNode)break;
-    for(const{n,w,len,bike,eKey}of(adj[cur]||[])){
+    for(const{n,w,len,bike,eKey,isUserEdge}of(adj[cur]||[])){
       if(visited.has(n))continue;
       const nd=cd+w;
       if(dist[n]===undefined||nd<dist[n]){
-        dist[n]=nd;prev[n]=cur;prevEdge[n]={len:len,bike:bike,eKey:eKey};
+        dist[n]=nd;prev[n]=cur;prevEdge[n]={len:len,bike:bike,eKey:eKey,isUserEdge:isUserEdge};
         let ins=pq.findIndex(x=>x[0]>nd);
         if(ins<0)ins=pq.length;
         pq.splice(ins,0,[nd,n]);
@@ -1804,7 +1827,7 @@ function dijkstraNodes(oNode,dNode,k){
   while(prev[c]!==undefined){
     const p=prev[c];
     const e=prevEdge[c];
-    if(userEdgeSet.has(e.eKey))userEdgesUsedInPath++;
+    if(e.isUserEdge)userEdgesUsedInPath++;
     const geom=EDGE_GEOMS[e.eKey];
     if(geom&&geom.length>=2){
       const fromNode=NODES[p],toNode=NODES[c];
@@ -1812,9 +1835,9 @@ function dijkstraNodes(oNode,dNode,k){
       const d0=Math.abs(g0[0]-fromNode[0])+Math.abs(g0[1]-fromNode[1]);
       const dN=Math.abs(gN[0]-fromNode[0])+Math.abs(gN[1]-fromNode[1]);
       const coords=(d0<=dN)?geom:geom.slice().reverse();
-      segments.unshift({geom:coords,len:e.len,bike:e.bike});
+      segments.unshift({geom:coords,len:e.len,bike:e.bike,isUserEdge:e.isUserEdge});
     }else{
-      segments.unshift({from:NODES[p],to:NODES[c],len:e.len,bike:e.bike});
+      segments.unshift({from:NODES[p],to:NODES[c],len:e.len,bike:e.bike,isUserEdge:e.isUserEdge});
     }
     c=p;
   }
