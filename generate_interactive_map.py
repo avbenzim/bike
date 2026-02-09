@@ -1702,6 +1702,107 @@ function findCoveredEdges(coords){{
   return result;
 }}
 
+// Create virtual edges that follow the drawn lane, connecting network nodes
+// This allows the lane to create NEW connections in the network
+function createVirtualEdges(coords){{
+  const CONNECT_THRESHOLD=50; // meters - nodes within this distance can connect to the lane
+  const virtualEdges=[];
+
+  // Helper: compute cumulative distance along the lane for a point
+  // Returns {{segIdx, t, cumDist}} where segIdx is the segment index, t is position on segment, cumDist is total distance from start
+  function projectToLane(lat,lng){{
+    let bestDist=Infinity;
+    let bestSegIdx=0;
+    let bestT=0;
+
+    for(let i=0;i<coords.length-1;i++){{
+      const x1=coords[i][0],y1=coords[i][1];
+      const x2=coords[i+1][0],y2=coords[i+1][1];
+      const dx=x2-x1,dy=y2-y1;
+      let t=0;
+      if(dx!==0||dy!==0){{
+        t=Math.max(0,Math.min(1,((lat-x1)*dx+(lng-y1)*dy)/(dx*dx+dy*dy)));
+      }}
+      const projLat=x1+t*dx;
+      const projLng=y1+t*dy;
+      const d=haversineDistance(lat,lng,projLat,projLng);
+      if(d<bestDist){{
+        bestDist=d;
+        bestSegIdx=i;
+        bestT=t;
+      }}
+    }}
+
+    // Compute cumulative distance from start to the projection point
+    let cumDist=0;
+    for(let i=0;i<bestSegIdx;i++){{
+      cumDist+=haversineDistance(coords[i][0],coords[i][1],coords[i+1][0],coords[i+1][1]);
+    }}
+    // Add partial distance on the current segment
+    const segLen=haversineDistance(coords[bestSegIdx][0],coords[bestSegIdx][1],coords[bestSegIdx+1][0],coords[bestSegIdx+1][1]);
+    cumDist+=bestT*segLen;
+
+    return {{dist:bestDist,segIdx:bestSegIdx,t:bestT,cumDist:cumDist}};
+  }}
+
+  // Find all network nodes within threshold of the lane
+  const nearbyNodes=[];
+  for(const nodeId in NODES){{
+    const node=NODES[nodeId];
+    const nodeLat=node[1],nodeLon=node[0];
+
+    // Quick bounding box check first
+    let minLat=Infinity,maxLat=-Infinity,minLng=Infinity,maxLng=-Infinity;
+    for(const c of coords){{
+      if(c[0]<minLat)minLat=c[0];
+      if(c[0]>maxLat)maxLat=c[0];
+      if(c[1]<minLng)minLng=c[1];
+      if(c[1]>maxLng)maxLng=c[1];
+    }}
+    const margin=CONNECT_THRESHOLD/111000; // rough degrees
+    if(nodeLat<minLat-margin||nodeLat>maxLat+margin||nodeLon<minLng-margin||nodeLon>maxLng+margin)continue;
+
+    const proj=projectToLane(nodeLat,nodeLon);
+    if(proj.dist<=CONNECT_THRESHOLD){{
+      nearbyNodes.push({{
+        nodeId:parseInt(nodeId),
+        lat:nodeLat,
+        lng:nodeLon,
+        cumDist:proj.cumDist,
+        projDist:proj.dist
+      }});
+    }}
+  }}
+
+  // Sort by cumulative distance along the lane
+  nearbyNodes.sort((a,b)=>a.cumDist-b.cumDist);
+
+  console.log('createVirtualEdges: found '+nearbyNodes.length+' nodes within '+CONNECT_THRESHOLD+'m of lane');
+
+  // Create virtual edges between consecutive nodes along the lane
+  for(let i=0;i<nearbyNodes.length-1;i++){{
+    const n1=nearbyNodes[i];
+    const n2=nearbyNodes[i+1];
+
+    // Edge length is the distance along the lane between projections
+    const edgeLen=n2.cumDist-n1.cumDist;
+
+    // Only create edge if there's meaningful distance (avoid 0-length edges)
+    if(edgeLen>5){{
+      virtualEdges.push({{
+        from:n1.nodeId,
+        to:n2.nodeId,
+        len:edgeLen,
+        // Store the lane path segment for visualization
+        geometry:null // Could store actual geometry if needed
+      }});
+    }}
+  }}
+
+  console.log('createVirtualEdges: created '+virtualEdges.length+' virtual edges');
+  return virtualEdges;
+}}
+
 // Point to line segment distance (approximate in lat/lng)
 function pointToSegmentDist(px,py,x1,y1,x2,y2){{
   const dx=x2-x1,dy=y2-y1;
@@ -1935,6 +2036,7 @@ function finishDrawing(){{
 
   const length=calcLaneLength(coordsArr);
   const edges=findCoveredEdges(coordsArr);
+  const virtualEdges=createVirtualEdges(coordsArr);
 
   const lane={{
     id:userLaneIdCounter++,
@@ -1943,7 +2045,8 @@ function finishDrawing(){{
     length:length,
     active:true,
     layer:null,
-    edges:edges
+    edges:edges,
+    virtualEdges:virtualEdges
   }};
 
   // Create the visual layer
@@ -1952,7 +2055,7 @@ function finishDrawing(){{
     weight:5,
     opacity:0.85
   }});
-  lane.layer.bindPopup('<b>'+name+'</b><br>Length: '+(length/1000).toFixed(2)+' km<br>Matched edges: '+edges.length+'<br>Connection points: '+insertedCount);
+  lane.layer.bindPopup('<b>'+name+'</b><br>Length: '+(length/1000).toFixed(2)+' km<br>Matched edges: '+edges.length+'<br>Virtual edges: '+virtualEdges.length+'<br>Connection points: '+insertedCount);
   lane.layer.on('click',function(e){{
     // Don't stop propagation during drawing mode
     if(isDrawing)return;
@@ -1962,8 +2065,9 @@ function finishDrawing(){{
 
   userLanes.push(lane);
 
-  const connMsg=insertedCount>0?' ('+insertedCount+' connection pts added)':'';
-  document.getElementById('drawingStatus').innerHTML='<span style="color:#27ae60">Lane "'+name+'" created! ('+edges.length+' road edges matched'+connMsg+')</span>';
+  const connMsg=insertedCount>0?' ('+insertedCount+' connection pts)':'';
+  const virtualMsg=virtualEdges.length>0?', '+virtualEdges.length+' virtual edges':'';
+  document.getElementById('drawingStatus').innerHTML='<span style="color:#27ae60">Lane "'+name+'" created! ('+edges.length+' road edges'+virtualMsg+connMsg+')</span>';
 
   buildUserLaneList();
   invalidateUserLaneComputation();
@@ -2108,6 +2212,7 @@ function importUserLanes(event){{
         const name=feat.properties?.name||('Imported Lane '+(userLaneIdCounter+1));
         const length=calcLaneLength(coords);
         const edges=findCoveredEdges(coords);
+        const virtualEdges=createVirtualEdges(coords);
 
         const lane={{
           id:userLaneIdCounter++,
@@ -2116,7 +2221,8 @@ function importUserLanes(event){{
           length:length,
           active:feat.properties?.active!==false,
           layer:null,
-          edges:edges
+          edges:edges,
+          virtualEdges:virtualEdges
         }};
 
         lane.layer=L.polyline(coords.map(c=>[c[0],c[1]]),{{
@@ -2124,7 +2230,7 @@ function importUserLanes(event){{
           weight:5,
           opacity:lane.active?0.85:0.3
         }});
-        lane.layer.bindPopup('<b>'+lane.name+'</b><br>Length: '+(length/1000).toFixed(2)+' km<br>Matched edges: '+edges.length);
+        lane.layer.bindPopup('<b>'+lane.name+'</b><br>Length: '+(length/1000).toFixed(2)+' km<br>Matched edges: '+edges.length+'<br>Virtual edges: '+virtualEdges.length);
         userLanesLyrGroup.addLayer(lane.layer);
         userLanes.push(lane);
         imported++;
@@ -2196,6 +2302,20 @@ dijkstra=function(origIdx,destIdx,k){{
     if(!adj[b])adj[b]=[];
     adj[a].push({{n:b,w:w,len:len,bike:bike,eKey:edgeKey,isUserEdge:isUserEdge}});
     adj[b].push({{n:a,w:w,len:len,bike:bike,eKey:edgeKey,isUserEdge:isUserEdge}});
+  }}
+
+  // Add virtual edges from active user lanes
+  for(const lane of userLanes){{
+    if(!lane.active||!lane.virtualEdges)continue;
+    for(const ve of lane.virtualEdges){{
+      const a=String(ve.from),b=String(ve.to);
+      const len=ve.len;
+      const eKey='virtual_'+lane.id+'_'+ve.from+'_'+ve.to;
+      if(!adj[a])adj[a]=[];
+      if(!adj[b])adj[b]=[];
+      adj[a].push({{n:b,w:len,len:len,bike:true,eKey:eKey,isUserEdge:true,isVirtual:true}});
+      adj[b].push({{n:a,w:len,len:len,bike:true,eKey:eKey,isUserEdge:true,isVirtual:true}});
+    }}
   }}
 
   const dist={{}},prev={{}},prevEdge={{}},visited=new Set();
@@ -2288,6 +2408,24 @@ function dijkstraNodes(oNode,dNode,k){{
     adj[b].push({{n:a,w:w,len:len,bike:bike,eKey:edgeKey,isUserEdge:wasUserEdge}});
   }}
   console.log('dijkstraNodes: userEdgesInNetwork='+userEdgesInNetwork+' (edges in network that match user lanes)');
+
+  // Add virtual edges from active user lanes (these create NEW connections)
+  let virtualEdgeCount=0;
+  for(const lane of userLanes){{
+    if(!lane.active||!lane.virtualEdges)continue;
+    for(const ve of lane.virtualEdges){{
+      const a=String(ve.from),b=String(ve.to);
+      const len=ve.len;
+      const eKey='virtual_'+lane.id+'_'+ve.from+'_'+ve.to;
+      // Virtual edges are bike lanes (no K penalty) and marked as user edges
+      if(!adj[a])adj[a]=[];
+      if(!adj[b])adj[b]=[];
+      adj[a].push({{n:b,w:len,len:len,bike:true,eKey:eKey,isUserEdge:true,isVirtual:true}});
+      adj[b].push({{n:a,w:len,len:len,bike:true,eKey:eKey,isUserEdge:true,isVirtual:true}});
+      virtualEdgeCount++;
+    }}
+  }}
+  console.log('dijkstraNodes: added '+virtualEdgeCount+' virtual edges from user lanes');
 
   const dist={{}},prev={{}},prevEdge={{}},visited=new Set();
   dist[oNode]=0;
