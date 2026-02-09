@@ -138,6 +138,92 @@ def build_network(roads_proj, bike_lanes_list, areas_proj=None, tolerance=NODE_T
                 for line in geom.geoms:
                     mark_bike_lane_roads(line)
 
+    # Create virtual edges for bike lanes that don't follow roads
+    # This allows dedicated bike paths (through parks, along rivers, etc.) to be used for routing
+    VIRTUAL_EDGE_THRESHOLD = 50  # meters - nodes within this distance can connect to the bike lane
+
+    def create_virtual_edges_for_lane(line_geom):
+        """Create virtual edges connecting network nodes along a bike lane."""
+        if len(node_coords) == 0:
+            return
+
+        # Build KD-tree of current nodes if we have enough
+        current_node_ids = list(node_coords.keys())
+        current_coords = np.array([node_coords[n] for n in current_node_ids])
+        if len(current_coords) < 2:
+            return
+        current_tree = cKDTree(current_coords)
+
+        # Find all nodes within threshold of any point on the line
+        # Sample points along the line
+        line_length = line_geom.length
+        if line_length < 10:  # Skip very short segments
+            return
+
+        # Find nodes near the line
+        nearby_nodes = []
+        line_buffer = line_geom.buffer(VIRTUAL_EDGE_THRESHOLD)
+
+        for idx, nid in enumerate(current_node_ids):
+            pt = Point(current_coords[idx])
+            if line_buffer.contains(pt):
+                # Project node onto line to get distance along
+                proj_dist = line_geom.project(pt)
+                perp_dist = pt.distance(line_geom)
+                if perp_dist <= VIRTUAL_EDGE_THRESHOLD:
+                    nearby_nodes.append({
+                        'node_id': nid,
+                        'proj_dist': proj_dist,
+                        'perp_dist': perp_dist
+                    })
+
+        # Sort by distance along the line
+        nearby_nodes.sort(key=lambda x: x['proj_dist'])
+
+        # Create virtual edges between consecutive nodes
+        virtual_edge_count = 0
+        for i in range(len(nearby_nodes) - 1):
+            n1 = nearby_nodes[i]
+            n2 = nearby_nodes[i + 1]
+
+            # Edge length is distance along the bike lane between projections
+            edge_len = n2['proj_dist'] - n1['proj_dist']
+
+            # Only create edge if there's meaningful distance
+            if edge_len > 5:  # At least 5 meters
+                node_a, node_b = n1['node_id'], n2['node_id']
+                # Check if this edge already exists
+                if not G.has_edge(node_a, node_b):
+                    G.add_edge(node_a, node_b, length=edge_len, has_bike_lane=True, is_virtual=True)
+                    virtual_edge_count += 1
+                elif not G[node_a][node_b].get('has_bike_lane'):
+                    # Edge exists but wasn't marked as bike lane - update it
+                    G[node_a][node_b]['has_bike_lane'] = True
+
+        return virtual_edge_count
+
+    total_virtual_edges = 0
+    for bl_gdf in bike_lanes_list:
+        if bl_gdf is None or len(bl_gdf) == 0:
+            continue
+        bl_proj = bl_gdf.to_crs(TARGET_CRS)
+        for _, row in bl_proj.iterrows():
+            geom = row.geometry
+            if geom is None or geom.is_empty:
+                continue
+            if geom.geom_type == 'LineString':
+                count = create_virtual_edges_for_lane(geom)
+                if count:
+                    total_virtual_edges += count
+            elif geom.geom_type == 'MultiLineString':
+                for line in geom.geoms:
+                    count = create_virtual_edges_for_lane(line)
+                    if count:
+                        total_virtual_edges += count
+
+    if total_virtual_edges > 0:
+        print(f"  Created {total_virtual_edges} virtual edges for dedicated bike paths")
+
     # Connect area centroids to the nearest roads
     # This ensures every area has a proper connection to the network
     if areas_proj is not None and len(road_geoms) > 0:
