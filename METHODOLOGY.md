@@ -66,9 +66,9 @@ A lane's improvement reflects how much it:
 
 | Data | Source |
 |------|--------|
-| **Statistical Areas** | Jerusalem Transportation Master Plan Team (2025 projections) |
-| **Population (pop_2025)** | Jerusalem Transportation Master Plan Team |
-| **Employment (emp_2025)** | Jerusalem Transportation Master Plan Team |
+| **Statistical Areas** | Jerusalem Transportation Master Plan Team |
+| **Population** | Jerusalem Transportation Master Plan Team |
+| **Employment** | Jerusalem Transportation Master Plan Team |
 | **Completed Bike Lanes** | Jerusalem Transportation Master Plan Team |
 | **Under Construction Bike Lanes** | Jerusalem Transportation Master Plan Team |
 | **Wishing List Bike Lanes** | The author |
@@ -202,7 +202,7 @@ When drawing custom lanes:
 - Straight-line connections between lane endpoints and nearest road nodes
 - All roads are bidirectional
 - No turn penalties or traffic signals modeled
-- Population and employment from 2025 projections
+- Population and employment from projections
 
 ## References
 
