@@ -550,6 +550,86 @@ def main():
         # Store as list of [nodeA, nodeB] pairs
         wishing_edges[lid] = [[e[0], e[1]] for e in covered_edges]
 
+    # Create virtual edges for wishing lanes (similar to existing bike lanes)
+    # This ensures wishing lanes can provide connectivity even where they don't follow roads
+    print("Creating virtual edges for wishing lanes...")
+    from shapely.ops import substring
+    from shapely.geometry import Point
+
+    VIRTUAL_EDGE_THRESHOLD = 50  # meters - nodes within this distance can connect
+    wishing_virtual_edges = {}  # lane_id -> [{from, to, len, geometry}, ...]
+
+    # Build node tree for finding nearby nodes
+    ni_list = list(ni)
+    nc_list = [nc[n] for n in ni_list]
+    if len(nc_list) > 0:
+        node_tree = cKDTree(nc_list)
+    else:
+        node_tree = None
+
+    for lid in range(len(wishing_proj)):
+        geom = wishing_proj.iloc[lid].geometry
+        geom_wgs = wishing_wgs.iloc[lid].geometry
+        if geom is None or geom.is_empty or node_tree is None:
+            wishing_virtual_edges[lid] = []
+            continue
+
+        virtual_edges = []
+        for line, line_wgs in zip(get_linestrings(geom), get_linestrings(geom_wgs)):
+            line_length = line.length
+            if line_length < 10:
+                continue
+
+            # Find nodes near this line
+            nearby_nodes = []
+            line_buffer = line.buffer(VIRTUAL_EDGE_THRESHOLD)
+
+            for idx, nid in enumerate(ni_list):
+                pt = Point(nc_list[idx])
+                if line_buffer.contains(pt):
+                    proj_dist = line.project(pt)
+                    perp_dist = pt.distance(line)
+                    if perp_dist <= VIRTUAL_EDGE_THRESHOLD:
+                        nearby_nodes.append({
+                            'node_id': nid,
+                            'proj_dist': proj_dist,
+                            'perp_dist': perp_dist
+                        })
+
+            nearby_nodes.sort(key=lambda x: x['proj_dist'])
+
+            # Create virtual edges between consecutive nodes
+            for i in range(len(nearby_nodes) - 1):
+                n1 = nearby_nodes[i]
+                n2 = nearby_nodes[i + 1]
+                edge_len = n2['proj_dist'] - n1['proj_dist']
+
+                if edge_len > 5:  # At least 5 meters
+                    # Extract geometry portion in WGS84
+                    try:
+                        edge_geom = substring(line, n1['proj_dist'], n2['proj_dist'])
+                        edge_geom_wgs = substring(line_wgs, n1['proj_dist'], n2['proj_dist'])
+                        if edge_geom_wgs and not edge_geom_wgs.is_empty and edge_geom_wgs.geom_type == 'LineString':
+                            coords_wgs = [[round(c[0], 6), round(c[1], 6)] for c in edge_geom_wgs.coords]
+                            virtual_edges.append({
+                                'from': n1['node_id'],
+                                'to': n2['node_id'],
+                                'len': round(edge_len, 1),
+                                'geometry': coords_wgs
+                            })
+                    except:
+                        # Fall back to straight line
+                        virtual_edges.append({
+                            'from': n1['node_id'],
+                            'to': n2['node_id'],
+                            'len': round(edge_len, 1)
+                        })
+
+        wishing_virtual_edges[lid] = virtual_edges
+
+    total_wishing_virtual = sum(len(v) for v in wishing_virtual_edges.values())
+    print(f"  Created {total_wishing_virtual} virtual edges for wishing lanes")
+
     # Area centroids in WGS84
     areas_wgs = areas.to_crs(WGS84)
     centroids_wgs = [[round(c.x, 6), round(c.y, 6)] for c in areas_wgs.geometry.centroid]
@@ -585,6 +665,7 @@ def main():
         edge_geoms_wgs=edge_geoms_wgs,
         wishing_edges=wishing_edges,
         wishing_geoms=wishing_geoms,
+        wishing_virtual_edges=wishing_virtual_edges,
         centroids_wgs=centroids_wgs,
         k_values=K_VALUES,
         theta_values=THETA_VALUES,
@@ -600,7 +681,8 @@ def main():
 def generate_html(*, areas_geojson, completed_geojson, construction_geojson,
                   wishing_geojson, lane_names, area_names,
                   area_pop, area_emp, area_center_nodes,
-                  nodes_wgs, edges_list, edge_geoms_wgs, wishing_edges, wishing_geoms, centroids_wgs,
+                  nodes_wgs, edges_list, edge_geoms_wgs, wishing_edges, wishing_geoms,
+                  wishing_virtual_edges, centroids_wgs,
                   k_values, theta_values, version='dev'):
 
     # Serialize data compactly
@@ -609,7 +691,7 @@ def generate_html(*, areas_geojson, completed_geojson, construction_geojson,
 
     # Generate K options (default 100)
     k_options = '\n'.join([
-        f'      <option value="{k}"{" selected" if k == 100 else ""}>{k}</option>'
+        f'      <option value="{k}"{" selected" if k == 10 else ""}>{k}</option>'
         for k in k_values
     ])
     k_options += '\n      <option value="custom">Custom...</option>'
@@ -868,6 +950,7 @@ const EDGES={js_json(edges_list)};
 const EDGE_GEOMS={js_json(edge_geoms_wgs)};
 const WISHING_EDGES={js_json(wishing_edges)};
 const WISHING_GEOMS={js_json(wishing_geoms)};
+const WISHING_VIRTUAL_EDGES={js_json(wishing_virtual_edges)};
 const CENTROIDS={js_json(centroids_wgs)};
 
 // All computation is done online - no pre-computed accessibility data
@@ -875,7 +958,7 @@ const CENTROIDS={js_json(centroids_wgs)};
 // === STATE ===
 const sel=new Set();
 let wishLyr,areasLyr,pathLyrGroup;
-let currentK=100;
+let currentK=10;
 let currentTheta=-1.0;
 
 // Baseline = accessibility with NO wishing lanes (computed when K/theta changes)
@@ -956,8 +1039,10 @@ function onParamsChanged(){{
   computedK=null;
   computedTheta=null;
   computedSel=null;
-  // Compute baseline for new params
-  computeBaseline();
+  // Also clear baseline - will be recomputed when "Compute Accessibility" is clicked
+  baselineAcc=null;
+  baselineK=null;
+  baselineTheta=null;
   refresh();
   updateComputePanel();
 }}
@@ -2662,6 +2747,13 @@ computeAccessibility=function(){{
 
   btn.disabled=true;
   btn.textContent="Computing...";
+
+  // First compute baseline if needed (without any selected lanes)
+  if(!baselineAcc || baselineK!==k || baselineTheta!==theta){{
+    prog.innerHTML="<p>Computing baseline (no lanes selected)...</p>";
+    computeBaseline();
+  }}
+
   prog.innerHTML="<p>Building network with "+sel.size+" wishing lanes + "+userActiveIds.length+" custom lanes...</p>";
 
   setTimeout(()=>{{
@@ -2811,11 +2903,7 @@ computeAccessibility=function(){{
 buildLaneList();
 buildUserLaneList();
 updateComputePanel();
-// Compute baseline on startup (shows loading message briefly)
-setTimeout(()=>{{
-  computeBaseline();
-  updateAreaColors();
-}},100);
+// No longer compute baseline on startup - will compute when "Compute Accessibility" is clicked
 </script>
 
 <!-- Methodology Modal -->
