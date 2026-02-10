@@ -1145,8 +1145,8 @@ areasLyr=L.geoJSON(AREAS,{{
       const name=AREA_NAMES[aid]||"Area "+aid;
       const mode=getAccMode();
       let html="<b>"+name+"</b><br>"+
-        "Pop: "+Math.round(p.pop).toLocaleString()+"<br>"+
-        "Emp: "+Math.round(p.emp).toLocaleString();
+        "Pop: "+Math.round(AREA_POP[aid]).toLocaleString()+"<br>"+
+        "Emp: "+Math.round(AREA_EMP[aid]).toLocaleString();
       html+="<hr style='margin:4px 0'>";
       // Show baseline
       if(baselineAcc && baselineK===currentK && baselineTheta===currentTheta && baselineYear===currentYear){{
