@@ -37,13 +37,20 @@ NODE_TOLERANCE = 15
 # Default values for dropdowns (more options, user can also enter custom)
 K_VALUES = [2, 5, 10, 20, 50, 100, 200, 500, 1000]
 THETA_VALUES = [-0.25, -0.5, -0.75, -1.0, -1.25, -1.5, -2.0, -2.5, -3.0]
+DATA_YEARS = [2020, 2025, 2030, 2035, 2040]
+DEFAULT_YEAR = 2025
 
 
 def load_data():
     areas = gpd.read_file(script_dir / "jer_areas.shp")
     areas = areas[areas['in_jeru'] == 1].copy()
-    areas['pop'] = areas['pop_2025'].fillna(0)
-    areas['emp'] = areas['emp_2025'].fillna(0)
+    # Keep population and employment for all years
+    for year in DATA_YEARS:
+        areas[f'pop_{year}'] = areas[f'pop_{year}'].fillna(0)
+        areas[f'emp_{year}'] = areas[f'emp_{year}'].fillna(0)
+    # Default year for backwards compatibility
+    areas['pop'] = areas[f'pop_{DEFAULT_YEAR}'].fillna(0)
+    areas['emp'] = areas[f'emp_{DEFAULT_YEAR}'].fillna(0)
 
     roads = gpd.read_file(script_dir / "jerusalem_roads.kml", driver='KML')
     completed = gpd.read_file(script_dir / "bike_lanes_completed.kml", driver='KML')
@@ -636,9 +643,15 @@ def main():
 
     # Generate HTML
     print("Generating HTML...")
-    # Extract area data for online computation
-    area_pop = [round(float(v), 0) for v in areas_proj['pop'].values]
-    area_emp = [round(float(v), 0) for v in areas_proj['emp'].values]
+    # Extract area data for online computation - all years
+    area_pop_by_year = {}
+    area_emp_by_year = {}
+    for year in DATA_YEARS:
+        area_pop_by_year[year] = [round(float(v), 0) for v in areas_proj[f'pop_{year}'].values]
+        area_emp_by_year[year] = [round(float(v), 0) for v in areas_proj[f'emp_{year}'].values]
+    # Default year for backwards compatibility
+    area_pop = area_pop_by_year[DEFAULT_YEAR]
+    area_emp = area_emp_by_year[DEFAULT_YEAR]
 
     # Pre-compute area center nodes (which network node is closest to each area centroid)
     centroids_proj = [[round(c.x, 1), round(c.y, 1)] for c in areas_proj.geometry.centroid]
@@ -659,6 +672,10 @@ def main():
         area_names=area_names,
         area_pop=area_pop,
         area_emp=area_emp,
+        area_pop_by_year=area_pop_by_year,
+        area_emp_by_year=area_emp_by_year,
+        data_years=DATA_YEARS,
+        default_year=DEFAULT_YEAR,
         area_center_nodes=area_center_nodes,
         nodes_wgs=nodes_wgs,
         edges_list=edges_list,
@@ -680,7 +697,8 @@ def main():
 
 def generate_html(*, areas_geojson, completed_geojson, construction_geojson,
                   wishing_geojson, lane_names, area_names,
-                  area_pop, area_emp, area_center_nodes,
+                  area_pop, area_emp, area_pop_by_year, area_emp_by_year,
+                  data_years, default_year, area_center_nodes,
                   nodes_wgs, edges_list, edge_geoms_wgs, wishing_edges, wishing_geoms,
                   wishing_virtual_edges, centroids_wgs,
                   k_values, theta_values, version='dev'):
@@ -689,7 +707,7 @@ def generate_html(*, areas_geojson, completed_geojson, construction_geojson,
     def js_json(obj):
         return json.dumps(obj, ensure_ascii=False, separators=(',', ':'))
 
-    # Generate K options (default 100)
+    # Generate K options (default 10)
     k_options = '\n'.join([
         f'      <option value="{k}"{" selected" if k == 10 else ""}>{k}</option>'
         for k in k_values
@@ -702,6 +720,12 @@ def generate_html(*, areas_geojson, completed_geojson, construction_geojson,
         for t in theta_values
     ])
     theta_options += '\n      <option value="custom">Custom...</option>'
+
+    # Generate year options
+    year_options = '\n'.join([
+        f'      <option value="{y}"{" selected" if y == default_year else ""}>{y}</option>'
+        for y in data_years
+    ])
 
     return f'''<!DOCTYPE html>
 <html lang="en">
@@ -824,6 +848,12 @@ button:hover{{background:#2980b9}}
     </div>
   </div>
   <div class="cg">
+    <label>Year:</label>
+    <select id="yearSel" onchange="handleYearChange()">
+{year_options}
+    </select>
+  </div>
+  <div class="cg">
     <button onclick="selectAllLanes()">Select All</button>
     <button onclick="clearSel()">Clear</button>
   </div>
@@ -942,8 +972,12 @@ const CONSTRUCTION={js_json(construction_geojson)};
 const WISHING={js_json(wishing_geojson)};
 const LANE_NAMES={js_json(lane_names)};
 const AREA_NAMES={js_json(area_names)};
-const AREA_POP={js_json(area_pop)};
-const AREA_EMP={js_json(area_emp)};
+let AREA_POP={js_json(area_pop)};
+let AREA_EMP={js_json(area_emp)};
+const AREA_POP_BY_YEAR={js_json(area_pop_by_year)};
+const AREA_EMP_BY_YEAR={js_json(area_emp_by_year)};
+const DATA_YEARS={js_json(data_years)};
+const DEFAULT_YEAR={default_year};
 const AREA_NODES={js_json(area_center_nodes)};
 const NODES={js_json(nodes_wgs)};
 const EDGES={js_json(edges_list)};
@@ -960,16 +994,19 @@ const sel=new Set();
 let wishLyr,areasLyr,pathLyrGroup;
 let currentK=10;
 let currentTheta=-1.0;
+let currentYear=DEFAULT_YEAR;
 
-// Baseline = accessibility with NO wishing lanes (computed when K/theta changes)
+// Baseline = accessibility with NO wishing lanes (computed when K/theta/year changes)
 let baselineAcc=null;
 let baselineK=null;
 let baselineTheta=null;
+let baselineYear=null;
 
 // Computed = accessibility WITH selected wishing lanes
 let computedAcc=null;
 let computedK=null;
 let computedTheta=null;
+let computedYear=null;
 let computedSel=null;
 
 // Path point selection state
@@ -1033,16 +1070,26 @@ function applyCustomTheta(){{
   }}
 }}
 
+function handleYearChange(){{
+  const s=document.getElementById("yearSel");
+  currentYear=parseInt(s.value);
+  AREA_POP=AREA_POP_BY_YEAR[currentYear];
+  AREA_EMP=AREA_EMP_BY_YEAR[currentYear];
+  onParamsChanged();
+}}
+
 function onParamsChanged(){{
   // Clear computed results when params change
   computedAcc=null;
   computedK=null;
   computedTheta=null;
+  computedYear=null;
   computedSel=null;
   // Also clear baseline - will be recomputed when "Compute Accessibility" is clicked
   baselineAcc=null;
   baselineK=null;
   baselineTheta=null;
+  baselineYear=null;
   refresh();
   updateComputePanel();
 }}
@@ -1078,11 +1125,11 @@ areasLyr=L.geoJSON(AREAS,{{
         "Emp: "+Math.round(p.emp).toLocaleString();
       html+="<hr style='margin:4px 0'>";
       // Show baseline
-      if(baselineAcc && baselineK===currentK && baselineTheta===currentTheta){{
+      if(baselineAcc && baselineK===currentK && baselineTheta===currentTheta && baselineYear===currentYear){{
         const baseAcc=(mode==="dest")?baselineAcc.dest:baselineAcc.orig;
         html+="Baseline: "+baseAcc[aid].toFixed(1)+"<br>";
         // Show computed and change if available
-        if(computedAcc && computedK===currentK && computedTheta===currentTheta){{
+        if(computedAcc && computedK===currentK && computedTheta===currentTheta && computedYear===currentYear){{
           const compAcc=(mode==="dest")?computedAcc.dest:computedAcc.orig;
           html+="With lanes: "+compAcc[aid].toFixed(1)+"<br>";
           if(baseAcc[aid]>0){{
@@ -1252,9 +1299,9 @@ function updateAreaColors(){{
 
   // Accessibility mode: show baseline if no computed, or computed if available
   let acc=null;
-  if(computedAcc && computedK===currentK && computedTheta===currentTheta){{
+  if(computedAcc && computedK===currentK && computedTheta===currentTheta && computedYear===currentYear){{
     acc=(mode==="dest")?computedAcc.dest:computedAcc.orig;
-  }}else if(baselineAcc && baselineK===currentK && baselineTheta===currentTheta){{
+  }}else if(baselineAcc && baselineK===currentK && baselineTheta===currentTheta && baselineYear===currentYear){{
     acc=(mode==="dest")?baselineAcc.dest:baselineAcc.orig;
   }}
 
@@ -1678,6 +1725,7 @@ function computeBaseline(){{
   baselineAcc={{orig:acc_orig,dest:acc_dest,totalN:totalN}};
   baselineK=k;
   baselineTheta=theta;
+  baselineYear=currentYear;
 }}
 
 function computeAccessibility(){{
@@ -1737,12 +1785,13 @@ function computeAccessibility(){{
         computedAcc={{orig:acc_orig,dest:acc_dest,totalN:totalN}};
         computedK=k;
         computedTheta=theta;
+        computedYear=currentYear;
         computedSel=selKey;
 
         // Calculate improvement vs baseline
         let improvementPct=0;
         let baselineN=0;
-        if(baselineAcc && baselineK===k && baselineTheta===theta){{
+        if(baselineAcc && baselineK===k && baselineTheta===theta && baselineYear===currentYear){{
           baselineN=baselineAcc.totalN;
           if(baselineN>0){{
             improvementPct=100*(totalN-baselineN)/baselineN;
@@ -1754,7 +1803,7 @@ function computeAccessibility(){{
         prog.innerHTML="<p style='color:#27ae60'>Computation complete!</p>";
         results.innerHTML=
           '<div class="path-stats">'+
-          '<p><b>Results (K='+k+', &theta;='+theta+', '+sel.size+' lanes):</b></p>'+
+          '<p><b>Results (K='+k+', &theta;='+theta+', Year='+currentYear+', '+sel.size+' lanes):</b></p>'+
           '<table>'+
           '<tr><td>Baseline N:</td><td>'+baselineN.toExponential(3)+'</td></tr>'+
           '<tr><td>With selected lanes:</td><td>'+totalN.toExponential(3)+'</td></tr>'+
@@ -2388,6 +2437,7 @@ function invalidateUserLaneComputation(){{
   computedAcc=null;
   computedK=null;
   computedTheta=null;
+  computedYear=null;
   computedSel=null;
   updateAreaColors();
 }}
@@ -2811,11 +2861,12 @@ computeAccessibility=function(){{
         computedAcc={{orig:acc_orig,dest:acc_dest,totalN:totalN}};
         computedK=k;
         computedTheta=theta;
+        computedYear=currentYear;
         computedSel=selKey;
 
         let improvementPct=0;
         let baselineN=0;
-        if(baselineAcc && baselineK===k && baselineTheta===theta){{
+        if(baselineAcc && baselineK===k && baselineTheta===theta && baselineYear===currentYear){{
           baselineN=baselineAcc.totalN;
           if(baselineN>0){{
             improvementPct=100*(totalN-baselineN)/baselineN;
@@ -2829,7 +2880,7 @@ computeAccessibility=function(){{
         const userCount=userLanes.filter(l=>l.active).length;
         results.innerHTML=
           '<div class="path-stats">'+
-          '<p><b>Results (K='+k+', &theta;='+theta+'):</b></p>'+
+          '<p><b>Results (K='+k+', &theta;='+theta+', Year='+currentYear+'):</b></p>'+
           '<p style="font-size:.85em">'+sel.size+' wishing lanes + '+userCount+' custom lanes</p>'+
           '<table>'+
           '<tr><td>Baseline N:</td><td>'+baselineN.toExponential(3)+'</td></tr>'+
