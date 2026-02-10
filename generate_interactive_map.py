@@ -113,9 +113,20 @@ def build_network(roads_proj, bike_lanes_list, areas_proj=None, tolerance=NODE_T
                 intersection = road_geom.intersection(buffered)
                 if intersection.is_empty:
                     continue
-                # If most of the road segment is within the buffer, mark it
+                # Calculate overlap ratio
                 overlap_ratio = intersection.length / road_geom.length if road_geom.length > 0 else 0
-                if overlap_ratio > 0.5:  # At least 50% of road segment covered
+
+                # Mark as bike lane if:
+                # 1. At least 50% of road segment is covered by bike lane, OR
+                # 2. Road segment is short (<50m) and at least 30% is covered, OR
+                # 3. The bike lane covers a significant absolute length (>20m) of the road
+                should_mark = (
+                    overlap_ratio > 0.5 or
+                    (road_geom.length < 50 and overlap_ratio > 0.3) or
+                    intersection.length > 20
+                )
+
+                if should_mark:
                     edge_key = road_edges[idx]
                     s, e = edge_key
                     if G.has_edge(s, e):
@@ -144,21 +155,23 @@ def build_network(roads_proj, bike_lanes_list, areas_proj=None, tolerance=NODE_T
 
     def create_virtual_edges_for_lane(line_geom):
         """Create virtual edges connecting network nodes along a bike lane."""
+        from shapely.ops import substring
+
         if len(node_coords) == 0:
-            return
+            return 0
 
         # Build KD-tree of current nodes if we have enough
         current_node_ids = list(node_coords.keys())
         current_coords = np.array([node_coords[n] for n in current_node_ids])
         if len(current_coords) < 2:
-            return
+            return 0
         current_tree = cKDTree(current_coords)
 
         # Find all nodes within threshold of any point on the line
         # Sample points along the line
         line_length = line_geom.length
         if line_length < 10:  # Skip very short segments
-            return
+            return 0
 
         # Find nodes near the line
         nearby_nodes = []
@@ -196,6 +209,14 @@ def build_network(roads_proj, bike_lanes_list, areas_proj=None, tolerance=NODE_T
                 if not G.has_edge(node_a, node_b):
                     G.add_edge(node_a, node_b, length=edge_len, has_bike_lane=True, is_virtual=True)
                     virtual_edge_count += 1
+                    # Extract and store the geometry for this virtual edge
+                    try:
+                        edge_geom = substring(line_geom, n1['proj_dist'], n2['proj_dist'])
+                        if edge_geom and not edge_geom.is_empty and edge_geom.geom_type == 'LineString':
+                            edge_key = (min(node_a, node_b), max(node_a, node_b))
+                            edge_to_geom[edge_key] = edge_geom
+                    except:
+                        pass  # If geometry extraction fails, edge still works but renders as straight line
                 elif not G[node_a][node_b].get('has_bike_lane'):
                     # Edge exists but wasn't marked as bike lane - update it
                     G[node_a][node_b]['has_bike_lane'] = True
@@ -437,7 +458,9 @@ def main():
     for (s, e), geom in edge_geoms.items():
         # Transform geometry coords to WGS84
         coords_wgs = []
-        for x, y in geom.coords:
+        for coord in geom.coords:
+            # Handle both 2D (x, y) and 3D (x, y, z) coordinates
+            x, y = coord[0], coord[1]
             lon, lat = transformer.transform(x, y)
             coords_wgs.append([round(lon, 6), round(lat, 6)])
         edge_key = f"{min(s,e)}_{max(s,e)}"
@@ -513,7 +536,13 @@ def main():
                     if intersection.is_empty:
                         continue
                     overlap_ratio = intersection.length / road_geom.length if road_geom.length > 0 else 0
-                    if overlap_ratio > 0.5:
+                    # Same criteria as mark_bike_lane_roads
+                    should_mark = (
+                        overlap_ratio > 0.5 or
+                        (road_geom.length < 50 and overlap_ratio > 0.3) or
+                        intersection.length > 20
+                    )
+                    if should_mark:
                         covered_edges.add(road_edges_list[idx])
                 except:
                     pass
