@@ -1902,7 +1902,7 @@ function updateRankModeDescription(){{
   if(mode==='additive'){{
     desc.innerHTML='<b>Additive mode:</b> Measures the value each lane would add if built next. Baseline is the currently selected lanes.';
   }}else{{
-    desc.innerHTML='<b>Subtractive mode:</b> Measures the contribution of each lane to the full network. Compares full network (all wishing lanes) to removing one lane.';
+    desc.innerHTML='<b>Subtractive mode:</b> Measures the contribution of each selected lane to the current network. Compares current selection to removing one lane.';
   }}
 }}
 
@@ -1943,15 +1943,15 @@ function rankLanesAsync(mode,k,theta){{
     testLanes=allLaneIds.filter(id=>!sel.has(id));
     testType='add';
   }}else{{
-    // Subtractive: baseline is all lanes, test removing each lane
-    baselineSet=new Set(allLaneIds);
-    testLanes=allLaneIds;
+    // Subtractive: baseline is current selection, test removing each selected lane
+    baselineSet=new Set([...sel]);
+    testLanes=allLaneIds.filter(id=>sel.has(id));
     testType='remove';
   }}
 
   if(testLanes.length===0){{
     prog.innerHTML="<p style='color:#e74c3c'>No lanes to test. "+
-      (mode==='additive'?"Select fewer lanes or use subtractive mode.":"")+"</p>";
+      (mode==='additive'?"Select fewer lanes or use subtractive mode.":"Select some lanes first.")+"</p>";
     btn.disabled=false;
     btn.textContent="Compute Rankings";
     return;
