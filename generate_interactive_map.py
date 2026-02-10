@@ -443,6 +443,10 @@ def main():
     wishing_geojson = geojson_from_gdf(wishing[['geometry', 'Name', 'lane_id']], ['Name', 'lane_id'])
     lane_names = [wishing.iloc[i]['Name'] for i in range(len(wishing))]
 
+    # Compute lane lengths in meters (using projected CRS)
+    wishing_proj_temp = wishing.to_crs(TARGET_CRS)
+    lane_lengths = [round(wishing_proj_temp.iloc[i].geometry.length, 1) if wishing_proj_temp.iloc[i].geometry else 0 for i in range(len(wishing_proj_temp))]
+
     # Build network (no pre-computation of accessibility - all done online)
     print("Building network...")
     G_base, nc, nt, ni, edge_geoms = build_network(roads_proj, [completed, construction], areas_proj)
@@ -669,6 +673,7 @@ def main():
         construction_geojson=construction_geojson,
         wishing_geojson=wishing_geojson,
         lane_names=lane_names,
+        lane_lengths=lane_lengths,
         area_names=area_names,
         area_pop=area_pop,
         area_emp=area_emp,
@@ -696,7 +701,7 @@ def main():
 
 
 def generate_html(*, areas_geojson, completed_geojson, construction_geojson,
-                  wishing_geojson, lane_names, area_names,
+                  wishing_geojson, lane_names, lane_lengths, area_names,
                   area_pop, area_emp, area_pop_by_year, area_emp_by_year,
                   data_years, default_year, area_center_nodes,
                   nodes_wgs, edges_list, edge_geoms_wgs, wishing_edges, wishing_geoms,
@@ -834,6 +839,12 @@ button:hover{{background:#2980b9}}
     <input type="number" id="tCustom" placeholder="Enter &theta;" step="0.1" min="-10" max="0" style="width:80px;display:none" onchange="applyCustomTheta()">
   </div>
   <div class="cg">
+    <label>Year:</label>
+    <select id="yearSel" onchange="handleYearChange()">
+{year_options}
+    </select>
+  </div>
+  <div class="cg">
     <label>Color areas by:</label>
     <div class="radio-group">
       <label><input type="radio" name="accMode" value="origin" checked onchange="updateAreaColors()"> Origin</label>
@@ -846,16 +857,6 @@ button:hover{{background:#2980b9}}
       <label><input type="radio" name="showMode" value="accessibility" checked onchange="updateAreaColors()"> Accessibility</label>
       <label><input type="radio" name="showMode" value="change" onchange="updateAreaColors()"> Change (%)</label>
     </div>
-  </div>
-  <div class="cg">
-    <label>Year:</label>
-    <select id="yearSel" onchange="handleYearChange()">
-{year_options}
-    </select>
-  </div>
-  <div class="cg">
-    <button onclick="selectAllLanes()">Select All</button>
-    <button onclick="clearSel()">Clear</button>
   </div>
 </div>
 <div class="main">
@@ -898,6 +899,10 @@ button:hover{{background:#2980b9}}
       <h3>Select Wishing Lanes</h3>
       <div class="note">Click lanes to select them for the network. Selected lanes affect path finding and accessibility calculations.</div>
       <input type="text" id="laneSearch" placeholder="Search lanes..." style="width:100%;padding:8px;margin:8px 0;border:1px solid #ddd;border-radius:4px;box-sizing:border-box" oninput="filterLanes()">
+      <div style="margin:8px 0;display:flex;gap:8px">
+        <button onclick="selectAllLanes()">Select All</button>
+        <button onclick="clearSel()">Clear</button>
+      </div>
       <div id="laneList"></div>
     </div>
     <div id="draw" class="tc">
@@ -995,6 +1000,7 @@ const COMPLETED={js_json(completed_geojson)};
 const CONSTRUCTION={js_json(construction_geojson)};
 const WISHING={js_json(wishing_geojson)};
 const LANE_NAMES={js_json(lane_names)};
+const LANE_LENGTHS={js_json(lane_lengths)};
 const AREA_NAMES={js_json(area_names)};
 let AREA_POP={js_json(area_pop)};
 let AREA_EMP={js_json(area_emp)};
@@ -1969,14 +1975,16 @@ function rankLanesAsync(mode,k,theta){{
       let html='<div class="path-stats"><p><b>Lane Rankings ('+mode+' mode, K='+k+', θ='+theta+', Year='+currentYear+'):</b></p>';
       html+='<p style="font-size:.85em">Baseline N: '+baselineN.toExponential(3)+'</p>';
       html+='<table style="width:100%;font-size:.85em">';
-      html+='<tr style="background:#e0e0e0"><th>#</th><th>Lane</th><th>Δ%</th></tr>';
+      html+='<tr style="background:#e0e0e0"><th>#</th><th>Lane</th><th>Length</th><th>Δ%</th></tr>';
 
       rankings.forEach((r,i)=>{{
         const color=r.contribution>=0?'#27ae60':'#e74c3c';
         const sign=r.contribution>=0?'+':'';
+        const lenKm=(r.length/1000).toFixed(2);
         html+='<tr style="border-bottom:1px solid #ddd">';
         html+='<td style="padding:4px">'+(i+1)+'</td>';
         html+='<td style="padding:4px">'+r.name+'</td>';
+        html+='<td style="padding:4px">'+lenKm+' km</td>';
         html+='<td style="padding:4px;color:'+color+';font-weight:bold">'+sign+r.contribution.toFixed(4)+'%</td>';
         html+='</tr>';
       }});
@@ -2012,6 +2020,7 @@ function rankLanesAsync(mode,k,theta){{
     rankings.push({{
       id:laneId,
       name:LANE_NAMES[laneId],
+      length:LANE_LENGTHS[laneId],
       contribution:contribution,
       value:testN
     }});
