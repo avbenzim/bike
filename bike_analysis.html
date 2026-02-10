@@ -76,7 +76,7 @@ button:hover{background:#2980b9}
 </head>
 <body>
 <div class="header">
-  <h1>Jerusalem Bike Lane Analysis <span style="font-size:12px;color:#7f8c8d;font-weight:normal">v0a7733d</span></h1>
+  <h1>Jerusalem Bike Lane Analysis <span style="font-size:12px;color:#7f8c8d;font-weight:normal">v18ee0ba</span></h1>
   <span id="totalImp">Estimated total improvement: 0%</span>
 </div>
 <div class="formula">
@@ -1279,7 +1279,9 @@ function createVirtualEdges(coords){
         lat:nodeLat,
         lng:nodeLon,
         cumDist:proj.cumDist,
-        projDist:proj.dist
+        projDist:proj.dist,
+        segIdx:proj.segIdx,
+        t:proj.t
       });
     }
   }
@@ -1288,6 +1290,38 @@ function createVirtualEdges(coords){
   nearbyNodes.sort((a,b)=>a.cumDist-b.cumDist);
 
   console.log('createVirtualEdges: found '+nearbyNodes.length+' nodes within '+CONNECT_THRESHOLD+'m of lane');
+
+  // Helper: interpolate a point along a segment
+  function interpolatePoint(segIdx,t){
+    const p1=coords[segIdx];
+    const p2=coords[segIdx+1];
+    return [p1[0]+t*(p2[0]-p1[0]),p1[1]+t*(p2[1]-p1[1])];
+  }
+
+  // Helper: extract geometry between two projection points along the lane
+  function extractGeometry(n1,n2){
+    const geom=[];
+    // Start point: interpolated position on n1's segment
+    geom.push(interpolatePoint(n1.segIdx,n1.t));
+    // Add intermediate coords between the two nodes
+    for(let seg=n1.segIdx;seg<=n2.segIdx;seg++){
+      if(seg===n1.segIdx){
+        // For the first segment, add the end point if we're not at the end
+        if(n1.t<1&&seg<n2.segIdx){
+          geom.push([coords[seg+1][0],coords[seg+1][1]]);
+        }
+      }else if(seg===n2.segIdx){
+        // For the last segment, we'll add the interpolated end point below
+      }else{
+        // For intermediate segments, add the end point
+        geom.push([coords[seg+1][0],coords[seg+1][1]]);
+      }
+    }
+    // End point: interpolated position on n2's segment
+    geom.push(interpolatePoint(n2.segIdx,n2.t));
+    // Convert to [lon,lat] format to match EDGE_GEOMS
+    return geom.map(p=>[p[1],p[0]]);
+  }
 
   // Create virtual edges between consecutive nodes along the lane
   for(let i=0;i<nearbyNodes.length-1;i++){
@@ -1299,12 +1333,14 @@ function createVirtualEdges(coords){
 
     // Only create edge if there's meaningful distance (avoid 0-length edges)
     if(edgeLen>5){
+      // Extract the actual lane geometry for this edge
+      const geom=extractGeometry(n1,n2);
       virtualEdges.push({
         from:n1.nodeId,
         to:n2.nodeId,
         len:edgeLen,
         // Store the lane path segment for visualization
-        geometry:null // Could store actual geometry if needed
+        geometry:geom
       });
     }
   }
@@ -1815,12 +1851,18 @@ dijkstra=function(origIdx,destIdx,k){
   }
 
   // Add virtual edges from active user lanes
+  // Also build a lookup for virtual edge geometries
+  const virtualEdgeGeoms={};
   for(const lane of userLanes){
     if(!lane.active||!lane.virtualEdges)continue;
     for(const ve of lane.virtualEdges){
       const a=String(ve.from),b=String(ve.to);
       const len=ve.len;
       const eKey='virtual_'+lane.id+'_'+ve.from+'_'+ve.to;
+      // Store geometry for this virtual edge
+      if(ve.geometry){
+        virtualEdgeGeoms[eKey]=ve.geometry;
+      }
       if(!adj[a])adj[a]=[];
       if(!adj[b])adj[b]=[];
       adj[a].push({n:b,w:len,len:len,bike:true,eKey:eKey,isUserEdge:true,isVirtual:true});
@@ -1856,7 +1898,11 @@ dijkstra=function(origIdx,destIdx,k){
   while(prev[c]!==undefined){
     const p=prev[c];
     const e=prevEdge[c];
-    const geom=EDGE_GEOMS[e.eKey];
+    // Check for geometry in EDGE_GEOMS (road edges) or virtualEdgeGeoms (user lane edges)
+    let geom=EDGE_GEOMS[e.eKey];
+    if(!geom&&virtualEdgeGeoms[e.eKey]){
+      geom=virtualEdgeGeoms[e.eKey];
+    }
     if(geom&&geom.length>=2){
       const fromNode=NODES[p],toNode=NODES[c];
       const g0=geom[0],gN=geom[geom.length-1];
@@ -1920,6 +1966,8 @@ function dijkstraNodes(oNode,dNode,k){
   console.log('dijkstraNodes: userEdgesInNetwork='+userEdgesInNetwork+' (edges in network that match user lanes)');
 
   // Add virtual edges from active user lanes (these create NEW connections)
+  // Also build a lookup for virtual edge geometries
+  const virtualEdgeGeoms={};
   let virtualEdgeCount=0;
   for(const lane of userLanes){
     if(!lane.active||!lane.virtualEdges)continue;
@@ -1927,6 +1975,10 @@ function dijkstraNodes(oNode,dNode,k){
       const a=String(ve.from),b=String(ve.to);
       const len=ve.len;
       const eKey='virtual_'+lane.id+'_'+ve.from+'_'+ve.to;
+      // Store geometry for this virtual edge
+      if(ve.geometry){
+        virtualEdgeGeoms[eKey]=ve.geometry;
+      }
       // Virtual edges are bike lanes (no K penalty) and marked as user edges
       if(!adj[a])adj[a]=[];
       if(!adj[b])adj[b]=[];
@@ -1967,7 +2019,11 @@ function dijkstraNodes(oNode,dNode,k){
     const p=prev[c];
     const e=prevEdge[c];
     if(e.isUserEdge)userEdgesUsedInPath++;
-    const geom=EDGE_GEOMS[e.eKey];
+    // Check for geometry in EDGE_GEOMS (road edges) or virtualEdgeGeoms (user lane edges)
+    let geom=EDGE_GEOMS[e.eKey];
+    if(!geom&&virtualEdgeGeoms[e.eKey]){
+      geom=virtualEdgeGeoms[e.eKey];
+    }
     if(geom&&geom.length>=2){
       const fromNode=NODES[p],toNode=NODES[c];
       const g0=geom[0],gN=geom[geom.length-1];
