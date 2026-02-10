@@ -76,7 +76,7 @@ button:hover{background:#2980b9}
 </head>
 <body>
 <div class="header">
-  <h1>Jerusalem Bike Lane Analysis <span style="font-size:12px;color:#7f8c8d;font-weight:normal">va161e35</span></h1>
+  <h1>Jerusalem Bike Lane Analysis <span style="font-size:12px;color:#7f8c8d;font-weight:normal">vf33d9a1</span></h1>
   <span id="totalImp">Estimated total improvement: 0%</span>
 </div>
 <div class="formula">
@@ -185,6 +185,7 @@ button:hover{background:#2980b9}
       <button onclick="showTab('draw',this)">Draw Lane</button>
       <button onclick="showTab('paths',this)">Find Path</button>
       <button onclick="showTab('compute',this)">Accessibility</button>
+      <button onclick="showTab('rank',this)">Rank Lanes</button>
     </div>
     <div id="lanes" class="tc act">
       <h3>Select Wishing Lanes</h3>
@@ -253,6 +254,29 @@ button:hover{background:#2980b9}
         <button onclick="showPath()">Show path</button>
       </div>
       <div id="pathInfo"></div>
+    </div>
+    <div id="rank" class="tc">
+      <h3>Rank Lanes</h3>
+      <div class="note">Calculate the contribution of each lane to network accessibility. Choose a ranking mode below.</div>
+      <div style="margin:10px 0">
+        <label style="display:block;margin:6px 0;cursor:pointer">
+          <input type="radio" name="rankMode" value="additive" checked onchange="updateRankModeDescription()">
+          <b>Additive</b> - Compare current network to adding each lane
+        </label>
+        <label style="display:block;margin:6px 0;cursor:pointer">
+          <input type="radio" name="rankMode" value="subtractive" onchange="updateRankModeDescription()">
+          <b>Subtractive</b> - Compare full network to removing each lane
+        </label>
+      </div>
+      <div id="rankModeDescription" class="note" style="background:#fff3cd;padding:8px;border-radius:4px;margin:10px 0">
+        <b>Additive mode:</b> Measures the value each lane would add if built next. Baseline is the currently selected lanes.
+      </div>
+      <div class="path-ctl">
+        <p><b>Parameters:</b> K=<span id="rankK">100</span>, &theta;=<span id="rankT">-1.0</span>, Year=<span id="rankYear">2025</span></p>
+        <button onclick="computeRankLanes()" id="rankBtn">Compute Rankings</button>
+        <div id="rankProgress" style="margin-top:10px"></div>
+      </div>
+      <div id="rankResults" style="margin-top:10px"></div>
     </div>
   </div>
 </div>
@@ -1151,6 +1175,217 @@ function computeAccessibility(){
 
     processArea(0);
   },50);
+}
+
+// === LANE RANKING ===
+function updateRankModeDescription(){
+  const mode=document.querySelector('input[name="rankMode"]:checked').value;
+  const desc=document.getElementById('rankModeDescription');
+  if(mode==='additive'){
+    desc.innerHTML='<b>Additive mode:</b> Measures the value each lane would add if built next. Baseline is the currently selected lanes.';
+  }else{
+    desc.innerHTML='<b>Subtractive mode:</b> Measures the contribution of each lane to the full network. Compares full network (all wishing lanes) to removing one lane.';
+  }
+}
+
+function computeRankLanes(){
+  const mode=document.querySelector('input[name="rankMode"]:checked').value;
+  const k=currentK;
+  const theta=currentTheta;
+
+  document.getElementById('rankK').textContent=k;
+  document.getElementById('rankT').textContent=theta;
+  document.getElementById('rankYear').textContent=currentYear;
+
+  const btn=document.getElementById("rankBtn");
+  const prog=document.getElementById("rankProgress");
+  const results=document.getElementById("rankResults");
+
+  btn.disabled=true;
+  btn.textContent="Computing...";
+  prog.innerHTML="<p>Preparing to compute lane rankings...</p>";
+  results.innerHTML="";
+
+  setTimeout(()=>rankLanesAsync(mode,k,theta),50);
+}
+
+function rankLanesAsync(mode,k,theta){
+  const prog=document.getElementById("rankProgress");
+  const results=document.getElementById("rankResults");
+  const btn=document.getElementById("rankBtn");
+
+  // Get all lane IDs
+  const allLaneIds=LANE_NAMES.map((_,i)=>i);
+
+  // Determine baseline and test configurations
+  let baselineSet,testLanes,testType;
+  if(mode==='additive'){
+    // Additive: baseline is current selection, test each unselected lane
+    baselineSet=new Set([...sel]);
+    testLanes=allLaneIds.filter(id=>!sel.has(id));
+    testType='add';
+  }else{
+    // Subtractive: baseline is all lanes, test removing each lane
+    baselineSet=new Set(allLaneIds);
+    testLanes=allLaneIds;
+    testType='remove';
+  }
+
+  if(testLanes.length===0){
+    prog.innerHTML="<p style='color:#e74c3c'>No lanes to test. "+
+      (mode==='additive'?"Select fewer lanes or use subtractive mode.":"")+"</p>";
+    btn.disabled=false;
+    btn.textContent="Compute Rankings";
+    return;
+  }
+
+  prog.innerHTML="<p>Computing baseline accessibility...</p>";
+
+  // First compute baseline
+  const baselineN=computeNetworkValue(baselineSet,k,theta);
+
+  prog.innerHTML="<p>Baseline computed. Testing "+testLanes.length+" lanes...</p>";
+
+  const rankings=[];
+  let processed=0;
+
+  function processLane(idx){
+    if(idx>=testLanes.length){
+      // Done - show results sorted by contribution
+      rankings.sort((a,b)=>b.contribution-a.contribution);
+
+      let html='<div class="path-stats"><p><b>Lane Rankings ('+mode+' mode, K='+k+', θ='+theta+', Year='+currentYear+'):</b></p>';
+      html+='<p style="font-size:.85em">Baseline N: '+baselineN.toExponential(3)+'</p>';
+      html+='<table style="width:100%;font-size:.85em">';
+      html+='<tr style="background:#e0e0e0"><th>#</th><th>Lane</th><th>Δ%</th></tr>';
+
+      rankings.forEach((r,i)=>{
+        const color=r.contribution>=0?'#27ae60':'#e74c3c';
+        const sign=r.contribution>=0?'+':'';
+        html+='<tr style="border-bottom:1px solid #ddd">';
+        html+='<td style="padding:4px">'+(i+1)+'</td>';
+        html+='<td style="padding:4px">'+r.name+'</td>';
+        html+='<td style="padding:4px;color:'+color+';font-weight:bold">'+sign+r.contribution.toFixed(4)+'%</td>';
+        html+='</tr>';
+      });
+
+      html+='</table></div>';
+      results.innerHTML=html;
+      prog.innerHTML="<p style='color:#27ae60'>Ranking complete!</p>";
+      btn.disabled=false;
+      btn.textContent="Compute Rankings";
+      return;
+    }
+
+    const laneId=testLanes[idx];
+    const testSet=new Set(baselineSet);
+
+    if(testType==='add'){
+      testSet.add(laneId);
+    }else{
+      testSet.delete(laneId);
+    }
+
+    const testN=computeNetworkValue(testSet,k,theta);
+
+    let contribution;
+    if(testType==='add'){
+      // How much does adding this lane improve?
+      contribution=baselineN>0?100*(testN-baselineN)/baselineN:0;
+    }else{
+      // How much does removing this lane hurt? (show as positive if lane is valuable)
+      contribution=baselineN>0?100*(baselineN-testN)/baselineN:0;
+    }
+
+    rankings.push({
+      id:laneId,
+      name:LANE_NAMES[laneId],
+      contribution:contribution,
+      value:testN
+    });
+
+    processed++;
+    if(processed%3===0||processed===testLanes.length){
+      prog.innerHTML="<p>Testing lanes: "+processed+"/"+testLanes.length+" ("+Math.round(100*processed/testLanes.length)+"%)</p>";
+    }
+
+    setTimeout(()=>processLane(idx+1),0);
+  }
+
+  processLane(0);
+}
+
+function computeNetworkValue(selectedLanes,k,theta){
+  // Build adjacency list with selected lanes
+  const adj={};
+  for(const e of EDGES){
+    const len=e[2],bike=!!e[3];
+    const w=bike?len:len*k;
+    const a=String(e[0]),b=String(e[1]);
+    if(!adj[a])adj[a]=[];
+    if(!adj[b])adj[b]=[];
+    adj[a].push({n:b,w:w,len:len});
+    adj[b].push({n:a,w:w,len:len});
+  }
+
+  // Build edge length lookup
+  const edgeLenLookup={};
+  for(const e of EDGES){
+    const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
+    edgeLenLookup[key]=e[2];
+  }
+
+  // Mark edges covered by selected wishing lanes as bike lanes
+  for(const lid of selectedLanes){
+    const edges=WISHING_EDGES[lid]||[];
+    for(const e of edges){
+      const a=String(e[0]),b=String(e[1]);
+      const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
+      const len=edgeLenLookup[key]||0;
+      if(adj[a])adj[a]=adj[a].map(x=>x.n===b?{...x,w:len}:x);
+      if(adj[b])adj[b]=adj[b].map(x=>x.n===a?{...x,w:len}:x);
+    }
+  }
+
+  const n=AREA_NODES.length;
+  let totalN=0;
+
+  // Run Dijkstra from each area
+  for(let i=0;i<n;i++){
+    const src=String(AREA_NODES[i]);
+    const dist={},visited=new Set();
+    dist[src]=0;
+    let pq=[[0,src]];
+
+    while(pq.length){
+      const[cd,cur]=pq.shift();
+      if(visited.has(cur))continue;
+      visited.add(cur);
+      for(const{n:nb,w}of(adj[cur]||[])){
+        if(visited.has(nb))continue;
+        const nd=cd+w;
+        if(dist[nb]===undefined||nd<dist[nb]){
+          dist[nb]=nd;
+          let ins=pq.findIndex(x=>x[0]>nd);
+          if(ins<0)ins=pq.length;
+          pq.splice(ins,0,[nd,nb]);
+        }
+      }
+    }
+
+    // Accumulate accessibility
+    for(let j=0;j<n;j++){
+      if(i===j)continue;
+      const dstNode=String(AREA_NODES[j]);
+      if(dist[dstNode]!==undefined){
+        const tau=Math.max(dist[dstNode]/1000,0.1);
+        const decay=Math.pow(tau,theta);
+        totalN+=AREA_POP[i]*AREA_EMP[j]*decay;
+      }
+    }
+  }
+
+  return totalN;
 }
 
 // === USER LANE DRAWING ===
