@@ -76,7 +76,7 @@ button:hover{background:#2980b9}
 </head>
 <body>
 <div class="header">
-  <h1>Jerusalem Bike Lane Analysis <span style="font-size:12px;color:#7f8c8d;font-weight:normal">v523814d</span></h1>
+  <h1>Jerusalem Bike Lane Analysis <span style="font-size:12px;color:#7f8c8d;font-weight:normal">v9b3f331</span></h1>
   <span id="totalImp">Estimated total improvement: 0%</span>
 </div>
 <div class="formula">
@@ -1190,7 +1190,7 @@ function updateRankModeDescription(){
   if(mode==='additive'){
     desc.innerHTML='<b>Additive mode:</b> Measures the value each lane would add if built next. Baseline is the currently selected lanes.';
   }else{
-    desc.innerHTML='<b>Subtractive mode:</b> Measures the contribution of each lane to the full network. Compares full network (all wishing lanes) to removing one lane.';
+    desc.innerHTML='<b>Subtractive mode:</b> Measures the contribution of each selected lane to the current network. Compares current selection to removing one lane.';
   }
 }
 
@@ -1231,15 +1231,15 @@ function rankLanesAsync(mode,k,theta){
     testLanes=allLaneIds.filter(id=>!sel.has(id));
     testType='add';
   }else{
-    // Subtractive: baseline is all lanes, test removing each lane
-    baselineSet=new Set(allLaneIds);
-    testLanes=allLaneIds;
+    // Subtractive: baseline is current selection, test removing each selected lane
+    baselineSet=new Set([...sel]);
+    testLanes=allLaneIds.filter(id=>sel.has(id));
     testType='remove';
   }
 
   if(testLanes.length===0){
     prog.innerHTML="<p style='color:#e74c3c'>No lanes to test. "+
-      (mode==='additive'?"Select fewer lanes or use subtractive mode.":"")+"</p>";
+      (mode==='additive'?"Select fewer lanes or use subtractive mode.":"Select some lanes first.")+"</p>";
     btn.disabled=false;
     btn.textContent="Compute Rankings";
     return;
