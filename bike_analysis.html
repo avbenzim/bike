@@ -76,7 +76,7 @@ button:hover{background:#2980b9}
 </head>
 <body>
 <div class="header">
-  <h1>Jerusalem Bike Lane Analysis <span style="font-size:12px;color:#7f8c8d;font-weight:normal">v9a79ce2</span></h1>
+  <h1>Jerusalem Bike Lane Analysis <span style="font-size:12px;color:#7f8c8d;font-weight:normal">v658a405</span></h1>
   <span id="totalImp">Estimated total improvement: 0%</span>
 </div>
 <div class="formula">
@@ -184,7 +184,7 @@ button:hover{background:#2980b9}
       <button class="act" onclick="showTab('lanes',this)">Select Lanes</button>
       <button onclick="showTab('draw',this)">Draw Lane</button>
       <button onclick="showTab('paths',this)">Find Path</button>
-      <button onclick="showTab('compute',this)">Accessibility</button>
+      <button onclick="showTab('compute',this)">Compute Accessibility</button>
       <button onclick="showTab('rank',this)">Rank Lanes</button>
     </div>
     <div id="lanes" class="tc act">
@@ -216,7 +216,7 @@ button:hover{background:#2980b9}
       <div class="note">Calculate accessibility for current network with selected lanes. This computes all area-to-area distances (30-60 sec).</div>
       <div class="path-ctl">
         <p><b>Selected lanes:</b> <span id="selCount">0</span></p>
-        <p><b>Parameters:</b> K=<span id="compK">100</span>, &theta;=<span id="compT">-1.0</span></p>
+        <p><b>Parameters:</b> K=<span id="compK">100</span>, &theta;=<span id="compT">-1.0</span>, Year=<span id="compYear">2025</span></p>
         <button onclick="computeAccessibility()" id="computeBtn">Compute Accessibility</button>
         <div id="computeProgress" style="margin-top:10px"></div>
       </div>
@@ -457,7 +457,7 @@ areasLyr=L.geoJSON(AREAS,{
           html+="<i>Select lanes & compute to see change</i>";
         }
       }else{
-        html+="<i>Computing baseline...</i>";
+        html+="<i>Select lanes & compute to see results</i>";
       }
       L.popup().setLatLng(e.latlng).setContent(html).openOn(map);
     });
@@ -981,6 +981,11 @@ function updateComputePanel(){
   document.getElementById("selCount").textContent=sel.size;
   document.getElementById("compK").textContent=currentK;
   document.getElementById("compT").textContent=currentTheta;
+  document.getElementById("compYear").textContent=currentYear;
+  // Also update Rank Lanes panel parameters
+  document.getElementById("rankK").textContent=currentK;
+  document.getElementById("rankT").textContent=currentTheta;
+  document.getElementById("rankYear").textContent=currentYear;
 }
 
 // Compute baseline accessibility (no wishing lanes) for current K/theta
