@@ -56,17 +56,17 @@ def load_data():
     completed = gpd.read_file(script_dir / "bike_lanes_completed.kml", driver='KML')
     construction = gpd.read_file(script_dir / "bike_lanes_construction.kml", driver='KML')
     try:
-        plan = gpd.read_file(script_dir / "bike_lanes_planned.kml", driver='KML', on_invalid='ignore')
+        plan = gpd.read_file(script_dir / "bike_lanes_plan.kml", driver='KML', on_invalid='ignore')
         # Drop any features with None geometry (from invalid WKB)
         plan = plan[plan.geometry.notnull()].copy()
     except Exception as e:
-        print(f"Warning: Could not read bike_lanes_planned.kml ({e}), using empty layer")
+        print(f"Warning: Could not read bike_lanes_plan.kml ({e}), using empty layer")
         plan = gpd.GeoDataFrame(columns=['geometry', 'Name'], geometry='geometry', crs='EPSG:4326')
     try:
-        check = gpd.read_file(script_dir / "bike_lanes_checked.kml", driver='KML', on_invalid='ignore')
+        check = gpd.read_file(script_dir / "bike_lanes_check.kml", driver='KML', on_invalid='ignore')
         check = check[check.geometry.notnull()].copy()
     except Exception as e:
-        print(f"Warning: Could not read bike_lanes_checked.kml ({e}), using empty layer")
+        print(f"Warning: Could not read bike_lanes_check.kml ({e}), using empty layer")
         check = gpd.GeoDataFrame(columns=['geometry', 'Name'], geometry='geometry', crs='EPSG:4326')
     wishing = gpd.read_file(script_dir / "bike_lanes_wishing_list.kml", driver='KML')
 
