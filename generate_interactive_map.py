@@ -55,9 +55,22 @@ def load_data():
     roads = gpd.read_file(script_dir / "jerusalem_roads.kml", driver='KML')
     completed = gpd.read_file(script_dir / "bike_lanes_completed.kml", driver='KML')
     construction = gpd.read_file(script_dir / "bike_lanes_construction.kml", driver='KML')
+    try:
+        plan = gpd.read_file(script_dir / "bike_lanes_planned.kml", driver='KML', on_invalid='ignore')
+        # Drop any features with None geometry (from invalid WKB)
+        plan = plan[plan.geometry.notnull()].copy()
+    except Exception as e:
+        print(f"Warning: Could not read bike_lanes_planned.kml ({e}), using empty layer")
+        plan = gpd.GeoDataFrame(columns=['geometry', 'Name'], geometry='geometry', crs='EPSG:4326')
+    try:
+        check = gpd.read_file(script_dir / "bike_lanes_checked.kml", driver='KML', on_invalid='ignore')
+        check = check[check.geometry.notnull()].copy()
+    except Exception as e:
+        print(f"Warning: Could not read bike_lanes_checked.kml ({e}), using empty layer")
+        check = gpd.GeoDataFrame(columns=['geometry', 'Name'], geometry='geometry', crs='EPSG:4326')
     wishing = gpd.read_file(script_dir / "bike_lanes_wishing_list.kml", driver='KML')
 
-    return areas, roads, completed, construction, wishing
+    return areas, roads, completed, construction, plan, check, wishing
 
 
 def build_network(roads_proj, bike_lanes_list, areas_proj=None, tolerance=NODE_TOLERANCE):
@@ -413,7 +426,7 @@ def geojson_from_gdf(gdf, props_list):
 
 def main():
     print("Loading data...")
-    areas, roads, completed, construction, wishing = load_data()
+    areas, roads, completed, construction, plan, check, wishing = load_data()
 
     areas_proj = areas.to_crs(TARGET_CRS)
     roads_proj = roads.to_crs(TARGET_CRS)
@@ -437,6 +450,8 @@ def main():
 
     completed_geojson = geojson_from_gdf(completed[['geometry', 'Name']], ['Name']) if len(completed) > 0 else {"type": "FeatureCollection", "features": []}
     construction_geojson = geojson_from_gdf(construction[['geometry', 'Name']], ['Name']) if len(construction) > 0 else {"type": "FeatureCollection", "features": []}
+    plan_geojson = geojson_from_gdf(plan[['geometry', 'Name']], ['Name']) if len(plan) > 0 else {"type": "FeatureCollection", "features": []}
+    check_geojson = geojson_from_gdf(check[['geometry', 'Name']], ['Name']) if len(check) > 0 else {"type": "FeatureCollection", "features": []}
 
     # Wishing list - use integer lane_id for identification
     wishing['lane_id'] = range(len(wishing))
@@ -447,12 +462,17 @@ def main():
     wishing_proj_temp = wishing.to_crs(TARGET_CRS)
     lane_lengths = [round(wishing_proj_temp.iloc[i].geometry.length, 1) if wishing_proj_temp.iloc[i].geometry else 0 for i in range(len(wishing_proj_temp))]
 
-    # Build network (no pre-computation of accessibility - all done online)
+    # Build network with ALL lane types for proper node/edge topology
+    # All lanes contribute to the base graph structure (nodes, edges, virtual edges)
+    # The JS side decides which layers are "active" for bike-lane weighting
     print("Building network...")
-    G_base, nc, nt, ni, edge_geoms = build_network(roads_proj, [completed, construction], areas_proj)
+    all_lane_layers = [completed, construction, plan, check, wishing]
+    G_base, nc, nt, ni, edge_geoms = build_network(roads_proj, all_lane_layers, areas_proj)
     print(f"  Network: {G_base.number_of_nodes()} nodes, {G_base.number_of_edges()} edges")
 
     # Build network data for path finding (WGS84 coords)
+    # EDGES are exported with has_bike_lane=0 for all edges (clean base network)
+    # Each layer type has its own edge set computed below; JS combines active layers
     print("Exporting network for path finding...")
     transformer = Transformer.from_crs(TARGET_CRS, WGS84, always_xy=True)
     nodes_wgs = {}
@@ -462,7 +482,8 @@ def main():
 
     edges_list = []
     for u, v, d in G_base.edges(data=True):
-        edges_list.append([u, v, round(d['length'], 1), 1 if d.get('has_bike_lane') else 0])
+        # All edges start as has_bike_lane=0; JS toggles via layer edge sets
+        edges_list.append([u, v, round(d['length'], 1), 0])
 
     # Export edge geometries for accurate path drawing
     edge_geoms_wgs = {}
@@ -477,9 +498,9 @@ def main():
         edge_key = f"{min(s,e)}_{max(s,e)}"
         edge_geoms_wgs[edge_key] = coords_wgs
 
-    # Pre-compute edges for each wishing list lane (for online path calculation)
-    # Find which road edges each wishing lane covers (same approach as build_network)
-    print("Computing wishing lane edges for online path finding...")
+    # Pre-compute edges for each layer type (for online path calculation)
+    # Find which road edges each layer covers (same approach as build_network)
+    print("Computing layer edges for online path finding...")
     from shapely.strtree import STRtree
 
     wishing_proj = wishing.to_crs(TARGET_CRS)
@@ -561,6 +582,95 @@ def main():
         # Store as list of [nodeA, nodeB] pairs
         wishing_edges[lid] = [[e[0], e[1]] for e in covered_edges]
 
+    # Compute edges for each non-wishing layer type (completed, construction, plan, check)
+    # These are computed as a single set of edges per layer (not per-lane)
+    def compute_layer_edges(layer_gdf):
+        """Find which road edges a layer covers (same logic as wishing lanes)."""
+        if layer_gdf is None or len(layer_gdf) == 0 or road_tree_spatial is None:
+            return []
+        layer_proj = layer_gdf.to_crs(TARGET_CRS)
+        covered = set()
+        for _, row in layer_proj.iterrows():
+            geom = row.geometry
+            if geom is None or geom.is_empty:
+                continue
+            for line in get_linestrings(geom):
+                buffered = line.buffer(BUFFER_DIST)
+                candidate_indices = road_tree_spatial.query(buffered)
+                for idx in candidate_indices:
+                    road_geom = road_geoms_list[idx]
+                    try:
+                        intersection = road_geom.intersection(buffered)
+                        if intersection.is_empty:
+                            continue
+                        overlap_ratio = intersection.length / road_geom.length if road_geom.length > 0 else 0
+                        should_mark = (
+                            overlap_ratio > 0.5 or
+                            (road_geom.length < 50 and overlap_ratio > 0.3) or
+                            intersection.length > 20
+                        )
+                        if should_mark:
+                            covered.add(road_edges_list[idx])
+                    except:
+                        pass
+        return [[e[0], e[1]] for e in covered]
+
+    print("  Computing layer edges...")
+    completed_edges = compute_layer_edges(completed)
+    construction_edges = compute_layer_edges(construction)
+    plan_edges = compute_layer_edges(plan)
+    check_edges = compute_layer_edges(check)
+    print(f"  Completed: {len(completed_edges)} edges, Construction: {len(construction_edges)} edges, Plan: {len(plan_edges)} edges, Check: {len(check_edges)} edges")
+
+    # Compute virtual edges for each non-wishing layer type
+    def compute_layer_virtual_edges(layer_gdf):
+        """Create virtual edges for a layer (same logic as wishing lanes)."""
+        if layer_gdf is None or len(layer_gdf) == 0 or node_tree is None:
+            return []
+        from shapely.ops import substring as substr
+        from shapely.geometry import Point as Pt
+        layer_proj_data = layer_gdf.to_crs(TARGET_CRS)
+        layer_wgs_data = layer_gdf.to_crs(WGS84)
+        virtual_edges_result = []
+        for row_idx in range(len(layer_proj_data)):
+            geom = layer_proj_data.iloc[row_idx].geometry
+            geom_wgs = layer_wgs_data.iloc[row_idx].geometry
+            if geom is None or geom.is_empty:
+                continue
+            for line, line_wgs in zip(get_linestrings(geom), get_linestrings(geom_wgs)):
+                line_length = line.length
+                if line_length < 10:
+                    continue
+                nearby = []
+                line_buffer = line.buffer(VIRTUAL_EDGE_THRESHOLD)
+                for idx_n, nid in enumerate(ni_list):
+                    pt = Pt(nc_list[idx_n])
+                    if line_buffer.contains(pt):
+                        proj_dist = line.project(pt)
+                        perp_dist = pt.distance(line)
+                        if perp_dist <= VIRTUAL_EDGE_THRESHOLD:
+                            nearby.append({'node_id': nid, 'proj_dist': proj_dist, 'perp_dist': perp_dist})
+                nearby.sort(key=lambda x: x['proj_dist'])
+                for i in range(len(nearby) - 1):
+                    n1 = nearby[i]
+                    n2 = nearby[i + 1]
+                    edge_len = n2['proj_dist'] - n1['proj_dist']
+                    if edge_len > 5:
+                        try:
+                            edge_geom_wgs = substr(line_wgs, n1['proj_dist'], n2['proj_dist'])
+                            if edge_geom_wgs and not edge_geom_wgs.is_empty and edge_geom_wgs.geom_type == 'LineString':
+                                coords_wgs = [[round(c[0], 6), round(c[1], 6)] for c in edge_geom_wgs.coords]
+                                virtual_edges_result.append({
+                                    'from': n1['node_id'], 'to': n2['node_id'],
+                                    'len': round(edge_len, 1), 'geometry': coords_wgs
+                                })
+                        except:
+                            virtual_edges_result.append({
+                                'from': n1['node_id'], 'to': n2['node_id'],
+                                'len': round(edge_len, 1)
+                            })
+        return virtual_edges_result
+
     # Create virtual edges for wishing lanes (similar to existing bike lanes)
     # This ensures wishing lanes can provide connectivity even where they don't follow roads
     print("Creating virtual edges for wishing lanes...")
@@ -641,6 +751,14 @@ def main():
     total_wishing_virtual = sum(len(v) for v in wishing_virtual_edges.values())
     print(f"  Created {total_wishing_virtual} virtual edges for wishing lanes")
 
+    # Compute virtual edges for non-wishing layer types
+    print("Computing virtual edges for other layer types...")
+    completed_virtual_edges = compute_layer_virtual_edges(completed)
+    construction_virtual_edges = compute_layer_virtual_edges(construction)
+    plan_virtual_edges = compute_layer_virtual_edges(plan)
+    check_virtual_edges = compute_layer_virtual_edges(check)
+    print(f"  Completed: {len(completed_virtual_edges)}, Construction: {len(construction_virtual_edges)}, Plan: {len(plan_virtual_edges)}, Check: {len(check_virtual_edges)} virtual edges")
+
     # Area centroids in WGS84
     areas_wgs = areas.to_crs(WGS84)
     centroids_wgs = [[round(c.x, 6), round(c.y, 6)] for c in areas_wgs.geometry.centroid]
@@ -671,6 +789,8 @@ def main():
         areas_geojson=areas_geojson,
         completed_geojson=completed_geojson,
         construction_geojson=construction_geojson,
+        plan_geojson=plan_geojson,
+        check_geojson=check_geojson,
         wishing_geojson=wishing_geojson,
         lane_names=lane_names,
         lane_lengths=lane_lengths,
@@ -685,6 +805,14 @@ def main():
         nodes_wgs=nodes_wgs,
         edges_list=edges_list,
         edge_geoms_wgs=edge_geoms_wgs,
+        completed_edges=completed_edges,
+        completed_virtual_edges=completed_virtual_edges,
+        construction_edges=construction_edges,
+        construction_virtual_edges=construction_virtual_edges,
+        plan_edges=plan_edges,
+        plan_virtual_edges=plan_virtual_edges,
+        check_edges=check_edges,
+        check_virtual_edges=check_virtual_edges,
         wishing_edges=wishing_edges,
         wishing_geoms=wishing_geoms,
         wishing_virtual_edges=wishing_virtual_edges,
@@ -701,10 +829,16 @@ def main():
 
 
 def generate_html(*, areas_geojson, completed_geojson, construction_geojson,
+                  plan_geojson, check_geojson,
                   wishing_geojson, lane_names, lane_lengths, area_names,
                   area_pop, area_emp, area_pop_by_year, area_emp_by_year,
                   data_years, default_year, area_center_nodes,
-                  nodes_wgs, edges_list, edge_geoms_wgs, wishing_edges, wishing_geoms,
+                  nodes_wgs, edges_list, edge_geoms_wgs,
+                  completed_edges, completed_virtual_edges,
+                  construction_edges, construction_virtual_edges,
+                  plan_edges, plan_virtual_edges,
+                  check_edges, check_virtual_edges,
+                  wishing_edges, wishing_geoms,
                   wishing_virtual_edges, centroids_wgs,
                   k_values, theta_values, version='dev'):
 
@@ -863,15 +997,18 @@ button:hover{{background:#2980b9}}
   <div class="map-wrap">
     <div id="map"></div>
     <div class="legend">
-      <strong>Legend - Lanes</strong>
-      <div class="legend-item"><div class="legend-line" style="background:#1B5E20"></div>Existing lanes</div>
-      <div class="legend-item"><div class="legend-line" style="background:#81C784"></div>Under construction</div>
-      <div class="legend-item"><div class="legend-line" style="background:#FF9800"></div>Wishing list</div>
-      <div class="legend-item"><div class="legend-line" style="background:#9b59b6;height:6px"></div>Selected lane</div>
+      <strong>Legend - Network Layers</strong>
+      <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrCompleted" checked onchange="toggleLayer('completed')"><div class="legend-line" style="background:#1B5E20"></div>Existing lanes</label></div>
+      <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrConstruction" checked onchange="toggleLayer('construction')"><div class="legend-line" style="background:#81C784"></div>Under construction</label></div>
+      <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrPlan" onchange="toggleLayer('plan')"><div class="legend-line" style="background:#2196F3"></div>Planned (city)</label></div>
+      <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrCheck" onchange="toggleLayer('check')"><div class="legend-line" style="background:#00BCD4"></div>Checked (city)</label></div>
+      <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrWishing" onchange="toggleLayer('wishing')"><div class="legend-line" style="background:#FF9800"></div>Wishing list</label></div>
+      <hr style="margin:6px 0;border:none;border-top:1px solid #ccc">
+      <div class="legend-item"><div class="legend-line" style="background:#9b59b6;height:6px"></div>Selected wishing lane</div>
       <div class="legend-item"><div class="legend-line" style="background:#E91E63;height:6px"></div>User-drawn lane</div>
       <div class="legend-item"><div class="legend-line" style="background:#1565C0;height:6px"></div>Path on bike lane</div>
       <div class="legend-item"><div class="legend-line" style="background:#E65100;height:6px"></div>Path on road</div>
-      <hr style="margin:8px 0;border:none;border-top:1px solid #ccc">
+      <hr style="margin:6px 0;border:none;border-top:1px solid #ccc">
       <strong>Area Accessibility (log scale)</strong>
       <div class="legend-item" style="flex-direction:column;align-items:flex-start;gap:2px">
         <div style="display:flex;align-items:center;gap:4px">
@@ -998,6 +1135,8 @@ button:hover{{background:#2980b9}}
 const AREAS={js_json(areas_geojson)};
 const COMPLETED={js_json(completed_geojson)};
 const CONSTRUCTION={js_json(construction_geojson)};
+const PLAN={js_json(plan_geojson)};
+const CHECK={js_json(check_geojson)};
 const WISHING={js_json(wishing_geojson)};
 const LANE_NAMES={js_json(lane_names)};
 const LANE_LENGTHS={js_json(lane_lengths)};
@@ -1012,6 +1151,20 @@ const AREA_NODES={js_json(area_center_nodes)};
 const NODES={js_json(nodes_wgs)};
 const EDGES={js_json(edges_list)};
 const EDGE_GEOMS={js_json(edge_geoms_wgs)};
+// Per-layer edge sets: which road edges each layer covers
+const LAYER_EDGES={{
+  completed:{js_json(completed_edges)},
+  construction:{js_json(construction_edges)},
+  plan:{js_json(plan_edges)},
+  check:{js_json(check_edges)}
+}};
+// Per-layer virtual edges
+const LAYER_VIRTUAL_EDGES={{
+  completed:{js_json(completed_virtual_edges)},
+  construction:{js_json(construction_virtual_edges)},
+  plan:{js_json(plan_virtual_edges)},
+  check:{js_json(check_virtual_edges)}
+}};
 const WISHING_EDGES={js_json(wishing_edges)};
 const WISHING_GEOMS={js_json(wishing_geoms)};
 const WISHING_VIRTUAL_EDGES={js_json(wishing_virtual_edges)};
@@ -1022,6 +1175,9 @@ const CENTROIDS={js_json(centroids_wgs)};
 // === STATE ===
 const sel=new Set();
 let wishLyr,areasLyr,pathLyrGroup;
+let completedLyr,constructionLyr,planLyr,checkLyr;
+// Layer toggle state: which layers are included in the network for calculations
+const activeLayers={{completed:true,construction:true,plan:false,check:false,wishing:false}};
 let currentK=10;
 let currentTheta=-1.0;
 let currentYear=DEFAULT_YEAR;
@@ -1129,6 +1285,130 @@ function selectAllLanes(){{
   refresh();
 }}
 
+// === LAYER TOGGLE ===
+const layerRefs={{completed:null,construction:null,plan:null,check:null}};
+function toggleLayer(name){{
+  const cb=document.getElementById('lyr'+name.charAt(0).toUpperCase()+name.slice(1));
+  activeLayers[name]=cb.checked;
+  // Show/hide map layer
+  const lyrMap={{completed:completedLyr,construction:constructionLyr,plan:planLyr,check:checkLyr}};
+  const lyr=lyrMap[name];
+  if(lyr){{
+    if(cb.checked){{lyr.addTo(map);}}
+    else{{map.removeLayer(lyr);}}
+  }}
+  // Wishing layer: toggle visibility + include all wishing lanes in network when checked
+  if(name==='wishing'){{
+    if(cb.checked){{
+      wishLyr.addTo(map);
+      // Select all wishing lanes
+      for(let i=0;i<LANE_NAMES.length;i++)sel.add(i);
+    }}else{{
+      map.removeLayer(wishLyr);
+      sel.clear();
+    }}
+  }}
+  onParamsChanged();
+}}
+
+// Build set of all edges covered by active layers (non-wishing)
+function getActiveLayerEdgeSet(){{
+  const edgeSet=new Set();
+  for(const name of ['completed','construction','plan','check']){{
+    if(!activeLayers[name])continue;
+    const edges=LAYER_EDGES[name]||[];
+    for(const e of edges){{
+      const a=Math.min(e[0],e[1]),b=Math.max(e[0],e[1]);
+      edgeSet.add(a+'_'+b);
+    }}
+  }}
+  return edgeSet;
+}}
+
+// Build array of all virtual edges from active layers (non-wishing)
+function getActiveLayerVirtualEdges(){{
+  const result=[];
+  for(const name of ['completed','construction','plan','check']){{
+    if(!activeLayers[name])continue;
+    const ves=LAYER_VIRTUAL_EDGES[name]||[];
+    for(const ve of ves)result.push(ve);
+  }}
+  return result;
+}}
+
+// Build set of all edges covered by selected wishing lanes
+function getWishingEdgeSet(){{
+  const edgeSet=new Set();
+  for(const lid of sel){{
+    const edges=WISHING_EDGES[lid]||[];
+    for(const e of edges){{
+      const a=Math.min(e[0],e[1]),b=Math.max(e[0],e[1]);
+      edgeSet.add(a+'_'+b);
+    }}
+  }}
+  return edgeSet;
+}}
+
+// Build array of all virtual edges from selected wishing lanes
+function getWishingVirtualEdges(){{
+  const result=[];
+  for(const lid of sel){{
+    const ves=WISHING_VIRTUAL_EDGES[lid]||[];
+    for(const ve of ves)result.push(ve);
+  }}
+  return result;
+}}
+
+// Get combined edge set of all active layers + selected wishing lanes
+function getAllBikeEdgeSet(){{
+  const s=getActiveLayerEdgeSet();
+  const w=getWishingEdgeSet();
+  for(const e of w)s.add(e);
+  return s;
+}}
+
+// Get combined virtual edges of all active layers + selected wishing lanes
+function getAllBikeVirtualEdges(){{
+  return [...getActiveLayerVirtualEdges(),...getWishingVirtualEdges()];
+}}
+
+// Build adjacency list with given bike edge set and virtual edges
+function buildAdj(bikeEdgeSet,virtualEdges,k,includeEdgeInfo){{
+  const adj={{}};
+  for(const e of EDGES){{
+    const len=e[2];
+    const a=String(e[0]),b=String(e[1]);
+    const edgeKey=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
+    const bike=bikeEdgeSet.has(edgeKey);
+    const w=bike?len:len*k;
+    if(!adj[a])adj[a]=[];
+    if(!adj[b])adj[b]=[];
+    if(includeEdgeInfo){{
+      adj[a].push({{n:b,w:w,len:len,bike:bike,eKey:edgeKey}});
+      adj[b].push({{n:a,w:w,len:len,bike:bike,eKey:edgeKey}});
+    }}else{{
+      adj[a].push({{n:b,w:w}});
+      adj[b].push({{n:a,w:w}});
+    }}
+  }}
+  // Add virtual edges (always bike lanes)
+  for(const ve of virtualEdges){{
+    const a=String(ve.from||ve['from']),b=String(ve.to||ve['to']);
+    const len=ve.len;
+    if(!adj[a])adj[a]=[];
+    if(!adj[b])adj[b]=[];
+    if(includeEdgeInfo){{
+      const eKey='ve_'+a+'_'+b;
+      adj[a].push({{n:b,w:len,len:len,bike:true,eKey:eKey,isVirtual:true}});
+      adj[b].push({{n:a,w:len,len:len,bike:true,eKey:eKey,isVirtual:true}});
+    }}else{{
+      adj[a].push({{n:b,w:len}});
+      adj[b].push({{n:a,w:len}});
+    }}
+  }}
+  return adj;
+}}
+
 // === MAP INIT ===
 const map=L.map("map").setView([31.78,35.22],12);
 L.tileLayer("https://{{s}}.basemaps.cartocdn.com/light_all/{{z}}/{{x}}/{{y}}{{r}}.png",{{
@@ -1177,31 +1457,41 @@ areasLyr=L.geoJSON(AREAS,{{
   }}
 }}).addTo(map);
 
-// Completed (dark green)
-if(COMPLETED.features.length)
-  L.geoJSON(COMPLETED,{{style:{{color:"#1B5E20",weight:3,opacity:.8}},
+// Helper to create a lane layer with popup
+function makeLaneLayer(data,color,label){{
+  return L.geoJSON(data,{{style:{{color:color,weight:3,opacity:.8}},
     onEachFeature:(f,l)=>{{
-      const content="<b>Existing:</b> "+(f.properties.Name||"");
+      const content="<b>"+label+":</b> "+(f.properties.Name||"");
       l.on('click',function(e){{
         if(isDrawing)return;
         if(pickingPointFor){{onPathPointClick(e);return;}}
         L.popup().setLatLng(e.latlng).setContent(content).openOn(map);
       }});
     }}
-  }}).addTo(map);
+  }});
+}}
 
-// Construction (light green)
-if(CONSTRUCTION.features.length)
-  L.geoJSON(CONSTRUCTION,{{style:{{color:"#81C784",weight:3,opacity:.8}},
-    onEachFeature:(f,l)=>{{
-      const content="<b>Under construction:</b> "+(f.properties.Name||"");
-      l.on('click',function(e){{
-        if(isDrawing)return;
-        if(pickingPointFor){{onPathPointClick(e);return;}}
-        L.popup().setLatLng(e.latlng).setContent(content).openOn(map);
-      }});
-    }}
-  }}).addTo(map);
+// Completed (dark green) - on by default
+if(COMPLETED.features.length){{
+  completedLyr=makeLaneLayer(COMPLETED,"#1B5E20","Existing");
+  completedLyr.addTo(map);
+}}
+
+// Construction (light green) - on by default
+if(CONSTRUCTION.features.length){{
+  constructionLyr=makeLaneLayer(CONSTRUCTION,"#81C784","Under construction");
+  constructionLyr.addTo(map);
+}}
+
+// Plan (blue) - off by default
+if(PLAN.features.length){{
+  planLyr=makeLaneLayer(PLAN,"#2196F3","Planned (city)");
+}}
+
+// Check (cyan) - off by default
+if(CHECK.features.length){{
+  checkLyr=makeLaneLayer(CHECK,"#00BCD4","Checked (city)");
+}}
 
 // Wishing list (orange, purple when selected)
 wishLyr=L.geoJSON(WISHING,{{
@@ -1243,7 +1533,8 @@ function refresh(){{
   // Update lane list
   buildLaneList();
   // Update total improvement display
-  document.getElementById("totalImp").textContent="Selected lanes: "+sel.size+" of "+LANE_NAMES.length;
+  const activeCount=['completed','construction','plan','check'].filter(n=>activeLayers[n]).length;
+  document.getElementById("totalImp").textContent="Active layers: "+activeCount+"/4 | Wishing lanes: "+sel.size+" of "+LANE_NAMES.length;
   // Update area colors
   updateAreaColors();
   // Update compute panel
@@ -1616,31 +1907,12 @@ function dijkstra(origIdx,destIdx,k){{
   }}
   if(!oNode||!dNode)return null;
 
-  // Build set of edges covered by selected wishing lanes
-  const wishingEdgeSet=new Set();
-  for(const lid of sel){{
-    const edges=WISHING_EDGES[lid]||[];
-    for(const e of edges){{
-      const a=Math.min(e[0],e[1]),b=Math.max(e[0],e[1]);
-      wishingEdgeSet.add(a+'_'+b);
-    }}
-  }}
+  // Build combined edge set from active layers + selected wishing lanes
+  const bikeEdgeSet=getAllBikeEdgeSet();
+  const virtualEdges=getAllBikeVirtualEdges();
 
-  // Build adjacency with edge info - mark edges covered by wishing lanes as bike lanes
-  const adj={{}};
-  for(const e of EDGES){{
-    const len=e[2];
-    let bike=!!e[3];
-    const a=String(e[0]),b=String(e[1]);
-    const edgeKey=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
-    // If this edge is covered by a selected wishing lane, treat as bike lane
-    if(wishingEdgeSet.has(edgeKey))bike=true;
-    const w=bike?len:len*k;
-    if(!adj[a])adj[a]=[];
-    if(!adj[b])adj[b]=[];
-    adj[a].push({{n:b,w:w,len:len,bike:bike,eKey:edgeKey}});
-    adj[b].push({{n:a,w:w,len:len,bike:bike,eKey:edgeKey}});
-  }}
+  // Build adjacency with edge info
+  const adj=buildAdj(bikeEdgeSet,virtualEdges,k,true);
 
   const dist={{}},prev={{}},prevEdge={{}},visited=new Set();
   dist[oNode]=0;
@@ -1674,7 +1946,6 @@ function dijkstra(origIdx,destIdx,k){{
     // Use edge geometry if available, otherwise fall back to node coords
     const geom=EDGE_GEOMS[e.eKey];
     if(geom&&geom.length>=2){{
-      // Check if we need to reverse the geometry (based on direction of travel)
       const fromNode=NODES[p],toNode=NODES[c];
       const g0=geom[0],gN=geom[geom.length-1];
       const d0=Math.abs(g0[0]-fromNode[0])+Math.abs(g0[1]-fromNode[1]);
@@ -1701,29 +1972,21 @@ function updateComputePanel(){{
   document.getElementById("rankYear").textContent=currentYear;
 }}
 
-// Compute baseline accessibility (no wishing lanes) for current K/theta
+// Compute baseline accessibility (active layers only, no wishing lanes) for current K/theta
 function computeBaseline(){{
   const k=currentK;
   const theta=currentTheta;
 
-  // Build adjacency list WITHOUT any wishing lanes
-  const adj={{}};
-  for(const e of EDGES){{
-    const len=e[2],bike=!!e[3];
-    const w=bike?len:len*k;
-    const a=String(e[0]),b=String(e[1]);
-    if(!adj[a])adj[a]=[];
-    if(!adj[b])adj[b]=[];
-    adj[a].push({{n:b,w:w}});
-    adj[b].push({{n:a,w:w}});
-  }}
+  // Build adjacency list with active layers only (no wishing lanes)
+  const bikeEdgeSet=getActiveLayerEdgeSet();
+  const virtualEdges=getActiveLayerVirtualEdges();
+  const adj=buildAdj(bikeEdgeSet,virtualEdges,k,false);
 
   const n=AREA_NODES.length;
   const acc_orig=new Array(n).fill(0);
   const acc_dest=new Array(n).fill(0);
   let totalN=0;
 
-  // Synchronous computation for baseline (runs in background conceptually)
   for(let i=0;i<n;i++){{
     const src=String(AREA_NODES[i]);
     const dist={{}},visited=new Set();
@@ -1767,7 +2030,7 @@ function computeAccessibility(){{
   const k=currentK;
   const theta=currentTheta;
   const selArr=[...sel].sort();
-  const selKey=JSON.stringify(selArr);
+  const selKey=JSON.stringify({{wishing:selArr,layers:activeLayers}});
 
   const btn=document.getElementById("computeBtn");
   const prog=document.getElementById("computeProgress");
@@ -1775,38 +2038,20 @@ function computeAccessibility(){{
 
   btn.disabled=true;
   btn.textContent="Computing...";
-  prog.innerHTML="<p>Building network with "+sel.size+" selected lanes...</p>";
+
+  // First compute baseline if needed
+  if(!baselineAcc || baselineK!==k || baselineTheta!==theta){{
+    prog.innerHTML="<p>Computing baseline (active layers only)...</p>";
+    computeBaseline();
+  }}
+
+  prog.innerHTML="<p>Building network with active layers + "+sel.size+" wishing lanes...</p>";
 
   setTimeout(()=>{{
-    // Build adjacency list with selected lanes
-    const adj={{}};
-    for(const e of EDGES){{
-      const len=e[2],bike=!!e[3];
-      const w=bike?len:len*k;
-      const a=String(e[0]),b=String(e[1]);
-      if(!adj[a])adj[a]=[];
-      if(!adj[b])adj[b]=[];
-      adj[a].push({{n:b,w:w,len:len}});
-      adj[b].push({{n:a,w:w,len:len}});
-    }}
-    // Build edge length lookup
-    const edgeLenLookup={{}};
-    for(const e of EDGES){{
-      const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
-      edgeLenLookup[key]=e[2];
-    }}
-    // Mark edges covered by selected wishing lanes as bike lanes
-    for(const lid of sel){{
-      const edges=WISHING_EDGES[lid]||[];
-      for(const e of edges){{
-        const a=String(e[0]),b=String(e[1]);
-        const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
-        const len=edgeLenLookup[key]||0;
-        // Update adjacency - these edges should have no K penalty
-        if(adj[a])adj[a]=adj[a].map(x=>x.n===b?{{...x,w:len}}:x);
-        if(adj[b])adj[b]=adj[b].map(x=>x.n===a?{{...x,w:len}}:x);
-      }}
-    }}
+    // Build combined edge set: active layers + wishing
+    const bikeEdgeSet=getAllBikeEdgeSet();
+    const virtualEdges=getAllBikeVirtualEdges();
+    const adj=buildAdj(bikeEdgeSet,virtualEdges,k,false);
 
     const n=AREA_NODES.length;
     const acc_orig=new Array(n).fill(0);
@@ -1816,14 +2061,12 @@ function computeAccessibility(){{
 
     function processArea(i){{
       if(i>=n){{
-        // Done - show results
         computedAcc={{orig:acc_orig,dest:acc_dest,totalN:totalN}};
         computedK=k;
         computedTheta=theta;
         computedYear=currentYear;
         computedSel=selKey;
 
-        // Calculate improvement vs baseline
         let improvementPct=0;
         let baselineN=0;
         if(baselineAcc && baselineK===k && baselineTheta===theta && baselineYear===currentYear){{
@@ -1838,7 +2081,7 @@ function computeAccessibility(){{
         prog.innerHTML="<p style='color:#27ae60'>Computation complete!</p>";
         results.innerHTML=
           '<div class="path-stats">'+
-          '<p><b>Results (K='+k+', &theta;='+theta+', Year='+currentYear+', '+sel.size+' lanes):</b></p>'+
+          '<p><b>Results (K='+k+', &theta;='+theta+', Year='+currentYear+', '+sel.size+' wishing lanes):</b></p>'+
           '<table>'+
           '<tr><td>Baseline N:</td><td>'+baselineN.toExponential(3)+'</td></tr>'+
           '<tr><td>With selected lanes:</td><td>'+totalN.toExponential(3)+'</td></tr>'+
@@ -1851,7 +2094,6 @@ function computeAccessibility(){{
       }}
 
       const src=String(AREA_NODES[i]);
-      // Run Dijkstra from area i
       const dist={{}},visited=new Set();
       dist[src]=0;
       let pq=[[0,src]];
@@ -1871,7 +2113,6 @@ function computeAccessibility(){{
         }}
       }}
 
-      // Accumulate accessibility
       for(let j=0;j<n;j++){{
         if(i===j)continue;
         const dstNode=String(AREA_NODES[j]);
@@ -2036,42 +2277,29 @@ function rankLanesAsync(mode,k,theta){{
   processLane(0);
 }}
 
-function computeNetworkValue(selectedLanes,k,theta){{
-  // Build adjacency list with selected lanes
-  const adj={{}};
-  for(const e of EDGES){{
-    const len=e[2],bike=!!e[3];
-    const w=bike?len:len*k;
-    const a=String(e[0]),b=String(e[1]);
-    if(!adj[a])adj[a]=[];
-    if(!adj[b])adj[b]=[];
-    adj[a].push({{n:b,w:w,len:len}});
-    adj[b].push({{n:a,w:w,len:len}});
-  }}
-
-  // Build edge length lookup
-  const edgeLenLookup={{}};
-  for(const e of EDGES){{
-    const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
-    edgeLenLookup[key]=e[2];
-  }}
-
-  // Mark edges covered by selected wishing lanes as bike lanes
-  for(const lid of selectedLanes){{
+function computeNetworkValue(selectedWishingLanes,k,theta){{
+  // Build combined edge set: active layers + given wishing lanes
+  const bikeEdgeSet=getActiveLayerEdgeSet();
+  // Add wishing lane edges
+  for(const lid of selectedWishingLanes){{
     const edges=WISHING_EDGES[lid]||[];
     for(const e of edges){{
-      const a=String(e[0]),b=String(e[1]);
-      const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
-      const len=edgeLenLookup[key]||0;
-      if(adj[a])adj[a]=adj[a].map(x=>x.n===b?{{...x,w:len}}:x);
-      if(adj[b])adj[b]=adj[b].map(x=>x.n===a?{{...x,w:len}}:x);
+      const a=Math.min(e[0],e[1]),b=Math.max(e[0],e[1]);
+      bikeEdgeSet.add(a+'_'+b);
     }}
   }}
+  // Combine virtual edges
+  const virtualEdges=[...getActiveLayerVirtualEdges()];
+  for(const lid of selectedWishingLanes){{
+    const ves=WISHING_VIRTUAL_EDGES[lid]||[];
+    for(const ve of ves)virtualEdges.push(ve);
+  }}
+
+  const adj=buildAdj(bikeEdgeSet,virtualEdges,k,false);
 
   const n=AREA_NODES.length;
   let totalN=0;
 
-  // Run Dijkstra from each area
   for(let i=0;i<n;i++){{
     const src=String(AREA_NODES[i]);
     const dist={{}},visited=new Set();
@@ -2094,7 +2322,6 @@ function computeNetworkValue(selectedLanes,k,theta){{
       }}
     }}
 
-    // Accumulate accessibility
     for(let j=0;j<n;j++){{
       if(i===j)continue;
       const dstNode=String(AREA_NODES[j]);
@@ -2795,14 +3022,11 @@ dijkstra=function(origIdx,destIdx,k){{
     }}
   }}
 
-  console.log('dijkstra: userEdgeSet.size='+userEdgeSet.size+', userLanes.length='+userLanes.length);
-
   // If no user lanes, use original
   if(userEdgeSet.size===0){{
     return originalDijkstra(origIdx,destIdx,k);
   }}
 
-  // Otherwise, run modified Dijkstra that includes user lane edges as bike lanes
   const oc=CENTROIDS[origIdx],dc=CENTROIDS[destIdx];
   let oNode=null,dNode=null,oD=Infinity,dD=Infinity;
   for(const[nid,c]of Object.entries(NODES)){{
@@ -2813,25 +3037,18 @@ dijkstra=function(origIdx,destIdx,k){{
   }}
   if(!oNode||!dNode)return null;
 
-  // Build set of edges covered by selected wishing lanes
-  const wishingEdgeSet=new Set();
-  for(const lid of sel){{
-    const edges=WISHING_EDGES[lid]||[];
-    for(const e of edges){{
-      const a=Math.min(e[0],e[1]),b=Math.max(e[0],e[1]);
-      wishingEdgeSet.add(a+'_'+b);
-    }}
-  }}
+  // Build combined edge set: active layers + wishing + user lanes
+  const bikeEdgeSet=getAllBikeEdgeSet();
+  for(const key of userEdgeSet)bikeEdgeSet.add(key);
 
-  // Build adjacency with edge info - mark edges covered by wishing lanes OR user lanes as bike lanes
+  // Build adjacency with user edge tracking
   const adj={{}};
   for(const e of EDGES){{
     const len=e[2];
-    let bike=!!e[3];
     const a=String(e[0]),b=String(e[1]);
     const edgeKey=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
     const isUserEdge=userEdgeSet.has(edgeKey);
-    if(wishingEdgeSet.has(edgeKey)||isUserEdge)bike=true;
+    const bike=bikeEdgeSet.has(edgeKey);
     const w=bike?len:len*k;
     if(!adj[a])adj[a]=[];
     if(!adj[b])adj[b]=[];
@@ -2839,8 +3056,18 @@ dijkstra=function(origIdx,destIdx,k){{
     adj[b].push({{n:a,w:w,len:len,bike:bike,eKey:edgeKey,isUserEdge:isUserEdge}});
   }}
 
-  // Add virtual edges from active user lanes
-  // Also build a lookup for virtual edge geometries
+  // Add virtual edges from all sources (layers + wishing + user)
+  const layerVEs=getAllBikeVirtualEdges();
+  for(const ve of layerVEs){{
+    const a=String(ve.from||ve['from']),b=String(ve.to||ve['to']);
+    const len=ve.len;
+    const eKey='ve_'+a+'_'+b;
+    if(!adj[a])adj[a]=[];
+    if(!adj[b])adj[b]=[];
+    adj[a].push({{n:b,w:len,len:len,bike:true,eKey:eKey}});
+    adj[b].push({{n:a,w:len,len:len,bike:true,eKey:eKey}});
+  }}
+
   const virtualEdgeGeoms={{}};
   for(const lane of userLanes){{
     if(!lane.active||!lane.virtualEdges)continue;
@@ -2848,10 +3075,7 @@ dijkstra=function(origIdx,destIdx,k){{
       const a=String(ve.from),b=String(ve.to);
       const len=ve.len;
       const eKey='virtual_'+lane.id+'_'+ve.from+'_'+ve.to;
-      // Store geometry for this virtual edge
-      if(ve.geometry){{
-        virtualEdgeGeoms[eKey]=ve.geometry;
-      }}
+      if(ve.geometry)virtualEdgeGeoms[eKey]=ve.geometry;
       if(!adj[a])adj[a]=[];
       if(!adj[b])adj[b]=[];
       adj[a].push({{n:b,w:len,len:len,bike:true,eKey:eKey,isUserEdge:true,isVirtual:true}});
@@ -2887,11 +3111,8 @@ dijkstra=function(origIdx,destIdx,k){{
   while(prev[c]!==undefined){{
     const p=prev[c];
     const e=prevEdge[c];
-    // Check for geometry in EDGE_GEOMS (road edges) or virtualEdgeGeoms (user lane edges)
     let geom=EDGE_GEOMS[e.eKey];
-    if(!geom&&virtualEdgeGeoms[e.eKey]){{
-      geom=virtualEdgeGeoms[e.eKey];
-    }}
+    if(!geom&&virtualEdgeGeoms[e.eKey])geom=virtualEdgeGeoms[e.eKey];
     if(geom&&geom.length>=2){{
       const fromNode=NODES[p],toNode=NODES[c];
       const g0=geom[0],gN=geom[geom.length-1];
@@ -2911,72 +3132,59 @@ dijkstra=function(origIdx,destIdx,k){{
 function dijkstraNodes(oNode,dNode,k){{
   // Get edges covered by active user lanes
   const userEdgeSet=new Set();
-  let totalUserEdges=0;
   for(const lane of userLanes){{
-    console.log('dijkstraNodes: lane "'+lane.name+'" active='+lane.active+' edges='+lane.edges.length);
     if(!lane.active)continue;
     for(const e of lane.edges){{
       const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
       userEdgeSet.add(key);
-      totalUserEdges++;
     }}
   }}
 
-  console.log('dijkstraNodes: userLanes.length='+userLanes.length+', userEdgeSet.size='+userEdgeSet.size+', totalUserEdges='+totalUserEdges);
-  console.log('dijkstraNodes: oNode='+oNode+', dNode='+dNode+', k='+k);
+  // Build combined edge set: active layers + wishing + user lanes
+  const bikeEdgeSet=getAllBikeEdgeSet();
+  for(const key of userEdgeSet)bikeEdgeSet.add(key);
 
-  // Build set of edges covered by selected wishing lanes
-  const wishingEdgeSet=new Set();
-  for(const lid of sel){{
-    const edges=WISHING_EDGES[lid]||[];
-    for(const e of edges){{
-      const a=Math.min(e[0],e[1]),b=Math.max(e[0],e[1]);
-      wishingEdgeSet.add(a+'_'+b);
-    }}
-  }}
-
-  // Build adjacency with edge info
+  // Build adjacency with user edge tracking
   const adj={{}};
-  let userEdgesInNetwork=0;
   for(const e of EDGES){{
     const len=e[2];
-    let bike=!!e[3];
     const a=String(e[0]),b=String(e[1]);
     const edgeKey=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
-    const wasUserEdge=userEdgeSet.has(edgeKey);
-    if(wishingEdgeSet.has(edgeKey)||wasUserEdge)bike=true;
-    if(wasUserEdge)userEdgesInNetwork++;
+    const isUserEdge=userEdgeSet.has(edgeKey);
+    const bike=bikeEdgeSet.has(edgeKey);
     const w=bike?len:len*k;
     if(!adj[a])adj[a]=[];
     if(!adj[b])adj[b]=[];
-    adj[a].push({{n:b,w:w,len:len,bike:bike,eKey:edgeKey,isUserEdge:wasUserEdge}});
-    adj[b].push({{n:a,w:w,len:len,bike:bike,eKey:edgeKey,isUserEdge:wasUserEdge}});
+    adj[a].push({{n:b,w:w,len:len,bike:bike,eKey:edgeKey,isUserEdge:isUserEdge}});
+    adj[b].push({{n:a,w:w,len:len,bike:bike,eKey:edgeKey,isUserEdge:isUserEdge}});
   }}
-  console.log('dijkstraNodes: userEdgesInNetwork='+userEdgesInNetwork+' (edges in network that match user lanes)');
 
-  // Add virtual edges from active user lanes (these create NEW connections)
-  // Also build a lookup for virtual edge geometries
+  // Add virtual edges from all sources
+  const layerVEs=getAllBikeVirtualEdges();
+  for(const ve of layerVEs){{
+    const a=String(ve.from||ve['from']),b=String(ve.to||ve['to']);
+    const len=ve.len;
+    const eKey='ve_'+a+'_'+b;
+    if(!adj[a])adj[a]=[];
+    if(!adj[b])adj[b]=[];
+    adj[a].push({{n:b,w:len,len:len,bike:true,eKey:eKey}});
+    adj[b].push({{n:a,w:len,len:len,bike:true,eKey:eKey}});
+  }}
+
   const virtualEdgeGeoms={{}};
-  let virtualEdgeCount=0;
   for(const lane of userLanes){{
     if(!lane.active||!lane.virtualEdges)continue;
     for(const ve of lane.virtualEdges){{
       const a=String(ve.from),b=String(ve.to);
       const len=ve.len;
       const eKey='virtual_'+lane.id+'_'+ve.from+'_'+ve.to;
-      // Store geometry for this virtual edge
-      if(ve.geometry){{
-        virtualEdgeGeoms[eKey]=ve.geometry;
-      }}
-      // Virtual edges are bike lanes (no K penalty) and marked as user edges
+      if(ve.geometry)virtualEdgeGeoms[eKey]=ve.geometry;
       if(!adj[a])adj[a]=[];
       if(!adj[b])adj[b]=[];
       adj[a].push({{n:b,w:len,len:len,bike:true,eKey:eKey,isUserEdge:true,isVirtual:true}});
       adj[b].push({{n:a,w:len,len:len,bike:true,eKey:eKey,isUserEdge:true,isVirtual:true}});
-      virtualEdgeCount++;
     }}
   }}
-  console.log('dijkstraNodes: added '+virtualEdgeCount+' virtual edges from user lanes');
 
   const dist={{}},prev={{}},prevEdge={{}},visited=new Set();
   dist[oNode]=0;
@@ -3003,16 +3211,11 @@ function dijkstraNodes(oNode,dNode,k){{
 
   const segments=[];
   let c=dNode;
-  let userEdgesUsedInPath=0;
   while(prev[c]!==undefined){{
     const p=prev[c];
     const e=prevEdge[c];
-    if(e.isUserEdge)userEdgesUsedInPath++;
-    // Check for geometry in EDGE_GEOMS (road edges) or virtualEdgeGeoms (user lane edges)
     let geom=EDGE_GEOMS[e.eKey];
-    if(!geom&&virtualEdgeGeoms[e.eKey]){{
-      geom=virtualEdgeGeoms[e.eKey];
-    }}
+    if(!geom&&virtualEdgeGeoms[e.eKey])geom=virtualEdgeGeoms[e.eKey];
     if(geom&&geom.length>=2){{
       const fromNode=NODES[p],toNode=NODES[c];
       const g0=geom[0],gN=geom[geom.length-1];
@@ -3025,7 +3228,6 @@ function dijkstraNodes(oNode,dNode,k){{
     }}
     c=p;
   }}
-  console.log('dijkstraNodes: path has '+segments.length+' segments, userEdgesUsedInPath='+userEdgesUsedInPath);
   return {{segments:segments}};
 }}
 
@@ -3036,9 +3238,8 @@ computeAccessibility=function(){{
   const theta=currentTheta;
   const selArr=[...sel].sort();
 
-  // Include user lane IDs in the cache key
   const userActiveIds=userLanes.filter(l=>l.active).map(l=>l.id).sort();
-  const selKey=JSON.stringify({{wishing:selArr,user:userActiveIds}});
+  const selKey=JSON.stringify({{wishing:selArr,user:userActiveIds,layers:activeLayers}});
 
   const btn=document.getElementById("computeBtn");
   const prog=document.getElementById("computeProgress");
@@ -3047,57 +3248,33 @@ computeAccessibility=function(){{
   btn.disabled=true;
   btn.textContent="Computing...";
 
-  // First compute baseline if needed (without any selected lanes)
+  // First compute baseline if needed (active layers only, no wishing)
   if(!baselineAcc || baselineK!==k || baselineTheta!==theta){{
-    prog.innerHTML="<p>Computing baseline (no lanes selected)...</p>";
+    prog.innerHTML="<p>Computing baseline (active layers only, no wishing)...</p>";
     computeBaseline();
   }}
 
-  prog.innerHTML="<p>Building network with "+sel.size+" wishing lanes + "+userActiveIds.length+" custom lanes...</p>";
+  prog.innerHTML="<p>Building network with active layers + "+sel.size+" wishing lanes + "+userActiveIds.length+" custom lanes...</p>";
 
   setTimeout(()=>{{
-    // Build adjacency list with selected lanes AND user lanes
-    const adj={{}};
-    for(const e of EDGES){{
-      const len=e[2],bike=!!e[3];
-      const w=bike?len:len*k;
-      const a=String(e[0]),b=String(e[1]);
-      if(!adj[a])adj[a]=[];
-      if(!adj[b])adj[b]=[];
-      adj[a].push({{n:b,w:w,len:len}});
-      adj[b].push({{n:a,w:w,len:len}});
-    }}
-
-    // Build edge length lookup
-    const edgeLenLookup={{}};
-    for(const e of EDGES){{
-      const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
-      edgeLenLookup[key]=e[2];
-    }}
-
-    // Mark edges covered by selected wishing lanes as bike lanes
-    for(const lid of sel){{
-      const edges=WISHING_EDGES[lid]||[];
-      for(const e of edges){{
-        const a=String(e[0]),b=String(e[1]);
-        const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
-        const len=edgeLenLookup[key]||0;
-        if(adj[a])adj[a]=adj[a].map(x=>x.n===b?{{...x,w:len}}:x);
-        if(adj[b])adj[b]=adj[b].map(x=>x.n===a?{{...x,w:len}}:x);
-      }}
-    }}
-
-    // Mark edges covered by active user lanes as bike lanes
+    // Build combined edge set: active layers + wishing + user lanes
+    const bikeEdgeSet=getAllBikeEdgeSet();
     for(const lane of userLanes){{
       if(!lane.active)continue;
       for(const e of lane.edges){{
-        const a=String(e[0]),b=String(e[1]);
         const key=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
-        const len=edgeLenLookup[key]||0;
-        if(adj[a])adj[a]=adj[a].map(x=>x.n===b?{{...x,w:len}}:x);
-        if(adj[b])adj[b]=adj[b].map(x=>x.n===a?{{...x,w:len}}:x);
+        bikeEdgeSet.add(key);
       }}
     }}
+
+    // Combine virtual edges
+    const virtualEdges=getAllBikeVirtualEdges();
+    for(const lane of userLanes){{
+      if(!lane.active||!lane.virtualEdges)continue;
+      for(const ve of lane.virtualEdges)virtualEdges.push(ve);
+    }}
+
+    const adj=buildAdj(bikeEdgeSet,virtualEdges,k,false);
 
     const n=AREA_NODES.length;
     const acc_orig=new Array(n).fill(0);
@@ -3140,7 +3317,6 @@ computeAccessibility=function(){{
           '</div>';
         updateAreaColors();
 
-        // Update user lane impact panel
         if(userCount>0){{
           document.getElementById('userLaneImpact').innerHTML=
             '<div class="impact-box'+(improvementPct<0?' negative':'')+'">'+
@@ -3261,6 +3437,8 @@ updateComputePanel();
       <tr><td style="padding:8px;border:1px solid #ddd">Employment</td><td style="padding:8px;border:1px solid #ddd">Jerusalem Transportation Master Plan Team</td></tr>
       <tr style="background:#f9f9f9"><td style="padding:8px;border:1px solid #ddd">Completed Bike Lanes</td><td style="padding:8px;border:1px solid #ddd">Jerusalem Transportation Master Plan Team</td></tr>
       <tr><td style="padding:8px;border:1px solid #ddd">Under Construction Bike Lanes</td><td style="padding:8px;border:1px solid #ddd">Jerusalem Transportation Master Plan Team</td></tr>
+      <tr style="background:#f9f9f9"><td style="padding:8px;border:1px solid #ddd">Planned Bike Lanes</td><td style="padding:8px;border:1px solid #ddd">Jerusalem Transportation Master Plan Team</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd">Checked Bike Lanes</td><td style="padding:8px;border:1px solid #ddd">Jerusalem Transportation Master Plan Team</td></tr>
       <tr style="background:#f9f9f9"><td style="padding:8px;border:1px solid #ddd">Wishing List Bike Lanes</td><td style="padding:8px;border:1px solid #ddd">The author</td></tr>
       <tr><td style="padding:8px;border:1px solid #ddd">Road Network</td><td style="padding:8px;border:1px solid #ddd">OpenStreetMap</td></tr>
     </table>
