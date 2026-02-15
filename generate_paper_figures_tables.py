@@ -88,6 +88,140 @@ def create_spectral_colormap():
 # Create the spectral colormap for use in figures
 SPECTRAL_CMAP = create_spectral_colormap()
 
+
+def spectral_color(t):
+    """Convert normalized value t (0-1) to RGB color matching HTML spectral gradient.
+
+    This function replicates the exact color interpolation used in the interactive
+    HTML map, ensuring visual consistency between the static paper figures and the
+    dynamic web-based analysis tool.
+    """
+    stops = [
+        (0.0, (0, 0, 205)),       # #0000CD dark blue
+        (0.25, (0, 206, 209)),    # #00CED1 cyan
+        (0.5, (255, 255, 0)),     # #FFFF00 yellow
+        (0.75, (255, 165, 0)),    # #FFA500 orange
+        (1.0, (220, 20, 60))      # #DC143C red
+    ]
+
+    t = max(0.0, min(1.0, t))
+
+    i = 0
+    while i < len(stops) - 1 and stops[i + 1][0] < t:
+        i += 1
+
+    if i >= len(stops) - 1:
+        return tuple(c / 255.0 for c in stops[-1][1])
+
+    t0, c0 = stops[i]
+    t1, c1 = stops[i + 1]
+    f = (t - t0) / (t1 - t0) if t1 != t0 else 0
+
+    r = int(c0[0] + (c1[0] - c0[0]) * f)
+    g = int(c0[1] + (c1[1] - c0[1]) * f)
+    b = int(c0[2] + (c1[2] - c0[2]) * f)
+
+    return (r / 255.0, g / 255.0, b / 255.0)
+
+
+def plot_areas_with_values(ax, areas_gdf, values, mode='accessibility', title='', show_colorbar=True):
+    """Plot statistical areas with colors matching HTML map exactly.
+
+    This function replicates the exact rendering logic from the interactive HTML map,
+    including logarithmic scaling, the spectral color gradient, and consistent styling
+    for area boundaries and fill opacity. The resulting visualization is visually
+    identical to what users see in the web-based analysis tool.
+
+    The accessibility mode uses natural log scaling to normalize values, matching how
+    the HTML interface transforms raw accessibility metrics into color mappings. The
+    change mode applies log(v+1) scaling to percentage improvements, ensuring that
+    small and large changes are both visible while maintaining proportional relationships.
+    """
+    areas_plot = areas_gdf.to_crs(WGS84).copy()
+    areas_plot['value'] = values
+
+    # Filter to positive values for log scaling (matching HTML behavior)
+    pos_values = values[values > 0]
+
+    if len(pos_values) == 0:
+        # No positive values - all gray
+        areas_plot.plot(ax=ax, color=IMPACT_COLORS['neutral'], edgecolor=UI_COLORS['header'],
+                        linewidth=0.5, alpha=0.5)
+        ax.set_title(title, fontsize=12, fontweight='bold', color=UI_COLORS['header'])
+        ax.set_aspect('equal')
+        return
+
+    if mode == 'accessibility':
+        # Use natural log scaling (matching HTML: logVals = pos.map(v => Math.log(v)))
+        log_values = np.log(pos_values)
+        mn_log = log_values.min()
+        mx_log = log_values.max()
+        fill_opacity = 0.5
+    else:  # change mode
+        # Use log(v+1) scaling (matching HTML: logV = Math.log(v + 1))
+        log_values = np.log(pos_values + 1)
+        mx_log = log_values.max()
+        mn_log = 0  # For change mode, min is always 0
+        fill_opacity = 0.6
+
+    # Plot each area with appropriate color
+    for idx, row in areas_plot.iterrows():
+        v = row['value']
+
+        if v <= 0:
+            # Zero or negative: gray (matching HTML: fillColor: "#BEBEBE")
+            color = IMPACT_COLORS['neutral']
+            alpha = 0.3 if mode == 'change' else 0.5
+        else:
+            # Compute normalized value using log scale
+            if mode == 'accessibility':
+                log_v = np.log(v)
+                n = (log_v - mn_log) / (mx_log - mn_log) if mx_log > mn_log else 0
+            else:
+                log_v = np.log(v + 1)
+                n = log_v / mx_log if mx_log > 0 else 0
+
+            color = spectral_color(n)
+            alpha = fill_opacity
+
+        # Plot individual polygon
+        if row.geometry is not None and not row.geometry.is_empty:
+            if row.geometry.geom_type == 'Polygon':
+                xs, ys = row.geometry.exterior.xy
+                ax.fill(xs, ys, color=color, alpha=alpha, edgecolor=UI_COLORS['header'], linewidth=0.5)
+            elif row.geometry.geom_type == 'MultiPolygon':
+                for poly in row.geometry.geoms:
+                    xs, ys = poly.exterior.xy
+                    ax.fill(xs, ys, color=color, alpha=alpha, edgecolor=UI_COLORS['header'], linewidth=0.5)
+
+    ax.set_title(title, fontsize=12, fontweight='bold', color=UI_COLORS['header'])
+    ax.set_aspect('equal')
+
+    # Add colorbar
+    if show_colorbar:
+        import matplotlib.cm as cm
+        from matplotlib.colors import Normalize
+
+        # Create a ScalarMappable for the colorbar
+        sm = plt.cm.ScalarMappable(cmap=SPECTRAL_CMAP, norm=Normalize(vmin=0, vmax=1))
+        sm.set_array([])
+
+        cbar = plt.colorbar(sm, ax=ax, shrink=0.7, pad=0.02)
+
+        if mode == 'accessibility':
+            # Show actual value range
+            min_val = np.exp(mn_log)
+            max_val = np.exp(mx_log)
+            cbar.set_label('Accessibility (log scale)', fontsize=9)
+            cbar.set_ticks([0, 0.5, 1])
+            cbar.set_ticklabels([f'{min_val:.0f}', f'{np.exp((mn_log+mx_log)/2):.0f}', f'{max_val:.0f}'])
+        else:
+            # Show percentage range
+            max_pct = np.exp(mx_log) - 1 if mx_log > 0 else 0
+            cbar.set_label('Improvement % (log scale)', fontsize=9)
+            cbar.set_ticks([0, 0.5, 1])
+            cbar.set_ticklabels(['0%', f'{max_pct/2:.1f}%', f'{max_pct:.1f}%'])
+
 script_dir = Path(__file__).parent
 fiona.drvsupport.supported_drivers['KML'] = 'rw'
 TARGET_CRS = 2039
@@ -718,27 +852,17 @@ def generate_figure_1_baseline_accessibility(areas, acc_orig, acc_dest, output_p
     """
     fig, axes = plt.subplots(1, 2, figsize=(14, 7))
 
-    areas_plot = areas.to_crs(WGS84).copy()
-    areas_plot['acc_orig'] = acc_orig
-    areas_plot['acc_dest'] = acc_dest
-
     # Origin accessibility (left panel)
-    ax1 = axes[0]
-    areas_plot.plot(column='acc_orig', cmap=SPECTRAL_CMAP, ax=ax1, edgecolor=UI_COLORS['header'],
-                    linewidth=0.5, legend=True, legend_kwds={'label': 'Origin Accessibility', 'shrink': 0.7})
-    ax1.set_title('Origin Accessibility', fontsize=12, fontweight='bold', color=UI_COLORS['header'])
-    ax1.set_xlabel('Longitude', fontsize=10)
-    ax1.set_ylabel('Latitude', fontsize=10)
-    ax1.set_aspect('equal')
+    plot_areas_with_values(axes[0], areas, acc_orig, mode='accessibility',
+                           title='Origin Accessibility', show_colorbar=True)
+    axes[0].set_xlabel('Longitude', fontsize=10)
+    axes[0].set_ylabel('Latitude', fontsize=10)
 
     # Destination accessibility (right panel)
-    ax2 = axes[1]
-    areas_plot.plot(column='acc_dest', cmap=SPECTRAL_CMAP, ax=ax2, edgecolor=UI_COLORS['header'],
-                    linewidth=0.5, legend=True, legend_kwds={'label': 'Destination Accessibility', 'shrink': 0.7})
-    ax2.set_title('Destination Accessibility', fontsize=12, fontweight='bold', color=UI_COLORS['header'])
-    ax2.set_xlabel('Longitude', fontsize=10)
-    ax2.set_ylabel('Latitude', fontsize=10)
-    ax2.set_aspect('equal')
+    plot_areas_with_values(axes[1], areas, acc_dest, mode='accessibility',
+                           title='Destination Accessibility', show_colorbar=True)
+    axes[1].set_xlabel('Longitude', fontsize=10)
+    axes[1].set_ylabel('Latitude', fontsize=10)
 
     fig.suptitle('Baseline Accessibility by Statistical Area', fontsize=14, fontweight='bold', y=1.02)
 
@@ -775,34 +899,17 @@ def generate_figure_2_improvement(areas, improvement_orig, improvement_dest, top
     """
     fig, axes = plt.subplots(1, 2, figsize=(14, 7))
 
-    areas_plot = areas.to_crs(WGS84).copy()
-    areas_plot['imp_orig'] = improvement_orig
-    areas_plot['imp_dest'] = improvement_dest
-
-    # Create a diverging colormap for improvements (white to colors based on improvement)
-    # Use spectral for positive improvements
-    vmax = max(improvement_orig.max(), improvement_dest.max())
-    vmin = 0
-
     # Origin improvement (left panel)
-    ax1 = axes[0]
-    areas_plot.plot(column='imp_orig', cmap=SPECTRAL_CMAP, ax=ax1, edgecolor=UI_COLORS['header'],
-                    linewidth=0.5, legend=True, vmin=vmin, vmax=vmax,
-                    legend_kwds={'label': 'Improvement (%)', 'shrink': 0.7})
-    ax1.set_title('Origin Accessibility Improvement', fontsize=12, fontweight='bold', color=UI_COLORS['header'])
-    ax1.set_xlabel('Longitude', fontsize=10)
-    ax1.set_ylabel('Latitude', fontsize=10)
-    ax1.set_aspect('equal')
+    plot_areas_with_values(axes[0], areas, improvement_orig, mode='change',
+                           title='Origin Accessibility Improvement', show_colorbar=True)
+    axes[0].set_xlabel('Longitude', fontsize=10)
+    axes[0].set_ylabel('Latitude', fontsize=10)
 
     # Destination improvement (right panel)
-    ax2 = axes[1]
-    areas_plot.plot(column='imp_dest', cmap=SPECTRAL_CMAP, ax=ax2, edgecolor=UI_COLORS['header'],
-                    linewidth=0.5, legend=True, vmin=vmin, vmax=vmax,
-                    legend_kwds={'label': 'Improvement (%)', 'shrink': 0.7})
-    ax2.set_title('Destination Accessibility Improvement', fontsize=12, fontweight='bold', color=UI_COLORS['header'])
-    ax2.set_xlabel('Longitude', fontsize=10)
-    ax2.set_ylabel('Latitude', fontsize=10)
-    ax2.set_aspect('equal')
+    plot_areas_with_values(axes[1], areas, improvement_dest, mode='change',
+                           title='Destination Accessibility Improvement', show_colorbar=True)
+    axes[1].set_xlabel('Longitude', fontsize=10)
+    axes[1].set_ylabel('Latitude', fontsize=10)
 
     # Create title with lane names
     lane_names = ', '.join(top_lanes[:3]) + (' and others' if len(top_lanes) > 3 else '')
@@ -813,6 +920,22 @@ def generate_figure_2_improvement(areas, improvement_orig, improvement_dest, top
     plt.savefig(output_path, format='pdf', dpi=300, bbox_inches='tight')
     plt.close()
     print(f"  Saved {output_path}")
+
+
+def plot_lane_geometry(ax, lane_geom, color, linewidth=4):
+    """Plot a lane geometry on an axis, handling LineString and MultiLineString types."""
+    if lane_geom is None:
+        return
+
+    if lane_geom.geom_type == 'LineString':
+        coords = list(lane_geom.coords)
+        xs, ys = zip(*[(c[0], c[1]) for c in coords])
+        ax.plot(xs, ys, color=color, linewidth=linewidth, solid_capstyle='round', zorder=10)
+    elif lane_geom.geom_type == 'MultiLineString':
+        for line in lane_geom.geoms:
+            coords = list(line.coords)
+            xs, ys = zip(*[(c[0], c[1]) for c in coords])
+            ax.plot(xs, ys, color=color, linewidth=linewidth, solid_capstyle='round', zorder=10)
 
 
 def generate_figure_3_single_lane_impact(areas, lane_name, imp_orig, imp_dest, lane_geom, output_path):
@@ -842,64 +965,24 @@ def generate_figure_3_single_lane_impact(areas, lane_name, imp_orig, imp_dest, l
     """
     fig, axes = plt.subplots(1, 2, figsize=(14, 7))
 
-    areas_plot = areas.to_crs(WGS84).copy()
-    areas_plot['imp_orig'] = imp_orig
-    areas_plot['imp_dest'] = imp_dest
-
-    vmax = max(imp_orig.max(), imp_dest.max(), 0.1)  # Ensure at least 0.1 for scale
-    vmin = 0
-
     # Origin improvement (left panel)
-    ax1 = axes[0]
-    areas_plot.plot(column='imp_orig', cmap=SPECTRAL_CMAP, ax=ax1, edgecolor=UI_COLORS['header'],
-                    linewidth=0.5, legend=True, vmin=vmin, vmax=vmax,
-                    legend_kwds={'label': 'Origin Improvement (%)', 'shrink': 0.7})
-
-    # Plot the lane geometry
-    if lane_geom is not None:
-        if lane_geom.geom_type == 'LineString':
-            coords = list(lane_geom.coords)
-            xs, ys = zip(*[(c[0], c[1]) for c in coords])
-            ax1.plot(xs, ys, color=LANE_COLORS['wishing'], linewidth=4, label='Proposed Lane',
-                     solid_capstyle='round', zorder=10)
-        elif lane_geom.geom_type == 'MultiLineString':
-            for line in lane_geom.geoms:
-                coords = list(line.coords)
-                xs, ys = zip(*[(c[0], c[1]) for c in coords])
-                ax1.plot(xs, ys, color=LANE_COLORS['wishing'], linewidth=4, solid_capstyle='round', zorder=10)
-
-    ax1.set_title(f'Origin Accessibility Impact', fontsize=12, fontweight='bold', color=UI_COLORS['header'])
-    ax1.set_xlabel('Longitude', fontsize=10)
-    ax1.set_ylabel('Latitude', fontsize=10)
-    ax1.set_aspect('equal')
+    plot_areas_with_values(axes[0], areas, imp_orig, mode='change',
+                           title='Origin Accessibility Impact', show_colorbar=True)
+    plot_lane_geometry(axes[0], lane_geom, LANE_COLORS['wishing'], linewidth=4)
+    axes[0].set_xlabel('Longitude', fontsize=10)
+    axes[0].set_ylabel('Latitude', fontsize=10)
 
     # Add legend for lane
     lane_line = Line2D([0], [0], color=LANE_COLORS['wishing'], linewidth=4, label='Proposed Lane')
-    ax1.legend(handles=[lane_line], loc='lower left', fontsize=9)
+    axes[0].legend(handles=[lane_line], loc='lower left', fontsize=9)
 
     # Destination improvement (right panel)
-    ax2 = axes[1]
-    areas_plot.plot(column='imp_dest', cmap=SPECTRAL_CMAP, ax=ax2, edgecolor=UI_COLORS['header'],
-                    linewidth=0.5, legend=True, vmin=vmin, vmax=vmax,
-                    legend_kwds={'label': 'Destination Improvement (%)', 'shrink': 0.7})
-
-    # Plot the lane geometry
-    if lane_geom is not None:
-        if lane_geom.geom_type == 'LineString':
-            coords = list(lane_geom.coords)
-            xs, ys = zip(*[(c[0], c[1]) for c in coords])
-            ax2.plot(xs, ys, color=LANE_COLORS['wishing'], linewidth=4, solid_capstyle='round', zorder=10)
-        elif lane_geom.geom_type == 'MultiLineString':
-            for line in lane_geom.geoms:
-                coords = list(line.coords)
-                xs, ys = zip(*[(c[0], c[1]) for c in coords])
-                ax2.plot(xs, ys, color=LANE_COLORS['wishing'], linewidth=4, solid_capstyle='round', zorder=10)
-
-    ax2.set_title(f'Destination Accessibility Impact', fontsize=12, fontweight='bold', color=UI_COLORS['header'])
-    ax2.set_xlabel('Longitude', fontsize=10)
-    ax2.set_ylabel('Latitude', fontsize=10)
-    ax2.set_aspect('equal')
-    ax2.legend(handles=[lane_line], loc='lower left', fontsize=9)
+    plot_areas_with_values(axes[1], areas, imp_dest, mode='change',
+                           title='Destination Accessibility Impact', show_colorbar=True)
+    plot_lane_geometry(axes[1], lane_geom, LANE_COLORS['wishing'], linewidth=4)
+    axes[1].set_xlabel('Longitude', fontsize=10)
+    axes[1].set_ylabel('Latitude', fontsize=10)
+    axes[1].legend(handles=[lane_line], loc='lower left', fontsize=9)
 
     fig.suptitle(f'Accessibility Impact of {lane_name}', fontsize=14, fontweight='bold', y=1.02)
 
@@ -939,62 +1022,20 @@ def generate_figure_4_top_lanes_comparison(areas, lane_impacts, output_path):
     if n_lanes == 1:
         axes = axes.reshape(1, 2)
 
-    areas_plot = areas.to_crs(WGS84).copy()
-
-    # Find global max for consistent color scale
-    vmax = 0
-    for impact in lane_impacts[:n_lanes]:
-        vmax = max(vmax, impact['imp_orig'].max(), impact['imp_dest'].max())
-    vmax = max(vmax, 0.1)
-    vmin = 0
-
     for i, impact in enumerate(lane_impacts[:n_lanes]):
-        areas_plot['imp_orig'] = impact['imp_orig']
-        areas_plot['imp_dest'] = impact['imp_dest']
-
         # Origin panel
         ax1 = axes[i, 0]
-        areas_plot.plot(column='imp_orig', cmap=SPECTRAL_CMAP, ax=ax1, edgecolor=UI_COLORS['header'],
-                        linewidth=0.4, legend=(i == 0), vmin=vmin, vmax=vmax,
-                        legend_kwds={'label': 'Improvement (%)', 'shrink': 0.6} if i == 0 else {})
-
-        # Plot the lane geometry
-        lane_geom = impact.get('geom_wgs84')
-        if lane_geom is not None:
-            if lane_geom.geom_type == 'LineString':
-                coords = list(lane_geom.coords)
-                xs, ys = zip(*[(c[0], c[1]) for c in coords])
-                ax1.plot(xs, ys, color=LANE_COLORS['wishing'], linewidth=3, solid_capstyle='round', zorder=10)
-            elif lane_geom.geom_type == 'MultiLineString':
-                for line in lane_geom.geoms:
-                    coords = list(line.coords)
-                    xs, ys = zip(*[(c[0], c[1]) for c in coords])
-                    ax1.plot(xs, ys, color=LANE_COLORS['wishing'], linewidth=3, solid_capstyle='round', zorder=10)
-
-        ax1.set_title(f'{impact["name"]} - Origin', fontsize=11, fontweight='bold', color=UI_COLORS['header'])
-        ax1.set_aspect('equal')
+        plot_areas_with_values(ax1, areas, impact['imp_orig'], mode='change',
+                               title=f'{impact["name"]} - Origin', show_colorbar=(i == 0))
+        plot_lane_geometry(ax1, impact.get('geom_wgs84'), LANE_COLORS['wishing'], linewidth=3)
         ax1.set_xticks([])
         ax1.set_yticks([])
 
         # Destination panel
         ax2 = axes[i, 1]
-        areas_plot.plot(column='imp_dest', cmap=SPECTRAL_CMAP, ax=ax2, edgecolor=UI_COLORS['header'],
-                        linewidth=0.4, legend=(i == 0), vmin=vmin, vmax=vmax,
-                        legend_kwds={'label': 'Improvement (%)', 'shrink': 0.6} if i == 0 else {})
-
-        if lane_geom is not None:
-            if lane_geom.geom_type == 'LineString':
-                coords = list(lane_geom.coords)
-                xs, ys = zip(*[(c[0], c[1]) for c in coords])
-                ax2.plot(xs, ys, color=LANE_COLORS['wishing'], linewidth=3, solid_capstyle='round', zorder=10)
-            elif lane_geom.geom_type == 'MultiLineString':
-                for line in lane_geom.geoms:
-                    coords = list(line.coords)
-                    xs, ys = zip(*[(c[0], c[1]) for c in coords])
-                    ax2.plot(xs, ys, color=LANE_COLORS['wishing'], linewidth=3, solid_capstyle='round', zorder=10)
-
-        ax2.set_title(f'{impact["name"]} - Destination', fontsize=11, fontweight='bold', color=UI_COLORS['header'])
-        ax2.set_aspect('equal')
+        plot_areas_with_values(ax2, areas, impact['imp_dest'], mode='change',
+                               title=f'{impact["name"]} - Destination', show_colorbar=(i == 0))
+        plot_lane_geometry(ax2, impact.get('geom_wgs84'), LANE_COLORS['wishing'], linewidth=3)
         ax2.set_xticks([])
         ax2.set_yticks([])
 
@@ -1041,15 +1082,6 @@ def generate_figure_5_cumulative_impact(areas, cumulative_impacts, output_path):
     fig, axes = plt.subplots(2, 2, figsize=(14, 12))
     axes = axes.flatten()
 
-    areas_plot = areas.to_crs(WGS84).copy()
-
-    # Find global max for consistent color scale
-    vmax = 0
-    for impact in cumulative_impacts[:n_stages]:
-        vmax = max(vmax, impact['imp_orig'].max())
-    vmax = max(vmax, 0.1)
-    vmin = 0
-
     stage_labels = ['After Top 1 Lane', 'After Top 2 Lanes', 'After Top 3 Lanes', 'After Top 5 Lanes']
     stages_to_show = [0, 1, 2, 4] if len(cumulative_impacts) >= 5 else list(range(n_stages))
 
@@ -1058,31 +1090,17 @@ def generate_figure_5_cumulative_impact(areas, cumulative_impacts, output_path):
             continue
 
         impact = cumulative_impacts[stage_idx]
-        areas_plot['imp_orig'] = impact['imp_orig']
-
         ax = axes[i]
-        areas_plot.plot(column='imp_orig', cmap=SPECTRAL_CMAP, ax=ax, edgecolor=UI_COLORS['header'],
-                        linewidth=0.4, legend=True, vmin=vmin, vmax=vmax,
-                        legend_kwds={'label': 'Improvement (%)', 'shrink': 0.6})
+
+        plot_areas_with_values(ax, areas, impact['imp_orig'], mode='change',
+                               title=f'{stage_labels[i]}\n({impact["lane_names"]})', show_colorbar=True)
 
         # Plot all lane geometries up to this stage
         for j in range(stage_idx + 1):
             lane_geom = cumulative_impacts[j].get('geom_wgs84')
-            if lane_geom is not None:
-                color = LANE_COLORS['wishing'] if j == stage_idx else LANE_COLORS['existing']
-                if lane_geom.geom_type == 'LineString':
-                    coords = list(lane_geom.coords)
-                    xs, ys = zip(*[(c[0], c[1]) for c in coords])
-                    ax.plot(xs, ys, color=color, linewidth=2.5, solid_capstyle='round', zorder=10)
-                elif lane_geom.geom_type == 'MultiLineString':
-                    for line in lane_geom.geoms:
-                        coords = list(line.coords)
-                        xs, ys = zip(*[(c[0], c[1]) for c in coords])
-                        ax.plot(xs, ys, color=color, linewidth=2.5, solid_capstyle='round', zorder=10)
+            color = LANE_COLORS['wishing'] if j == stage_idx else LANE_COLORS['existing']
+            plot_lane_geometry(ax, lane_geom, color, linewidth=2.5)
 
-        ax.set_title(f'{stage_labels[i]}\n({impact["lane_names"]})', fontsize=11, fontweight='bold',
-                     color=UI_COLORS['header'])
-        ax.set_aspect('equal')
         ax.set_xticks([])
         ax.set_yticks([])
 
