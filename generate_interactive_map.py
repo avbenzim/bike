@@ -265,6 +265,126 @@ def build_network(roads_proj, bike_lanes_list, areas_proj=None, tolerance=NODE_T
     if total_virtual_edges > 0:
         print(f"  Created {total_virtual_edges} virtual edges for dedicated bike paths")
 
+    # Connect off-road bike lanes to the road network
+    # For lanes that are far from roads (parks, trails), create:
+    # 1. Nodes along the bike lane
+    # 2. Connector edges to nearest road nodes
+    CONNECTOR_THRESHOLD = 1000  # Max distance to create connector to road network
+    LANE_NODE_INTERVAL = 100    # Create nodes every 100m along off-road lanes
+
+    def connect_offroad_lane(line_geom):
+        """Connect an off-road bike lane to the road network."""
+        if line_geom.length < 20:
+            return 0
+
+        # Build current node tree
+        current_node_ids = list(node_coords.keys())
+        if len(current_node_ids) < 2:
+            return 0
+        current_coords = np.array([node_coords[n] for n in current_node_ids])
+        current_tree = cKDTree(current_coords)
+
+        # Check if lane endpoints are far from road network
+        start = Point(line_geom.coords[0])
+        end = Point(line_geom.coords[-1])
+
+        start_dist, start_idx = current_tree.query([start.x, start.y])
+        end_dist, end_idx = current_tree.query([end.x, end.y])
+
+        # If both endpoints are already within virtual threshold, standard logic handles it
+        if start_dist <= VIRTUAL_EDGE_THRESHOLD and end_dist <= VIRTUAL_EDGE_THRESHOLD:
+            return 0
+
+        connections_made = 0
+
+        # Create nodes at lane endpoints if they're far from existing nodes
+        if start_dist > VIRTUAL_EDGE_THRESHOLD and start_dist <= CONNECTOR_THRESHOLD:
+            start_node = get_or_create_node(start.x, start.y)
+            nearest_road_node = current_node_ids[start_idx]
+            if start_node != nearest_road_node and not G.has_edge(start_node, nearest_road_node):
+                # Connector edge - allows access but not a bike lane itself
+                G.add_edge(start_node, nearest_road_node,
+                          length=start_dist,
+                          has_bike_lane=False,
+                          is_connector=True)
+                connections_made += 1
+
+        if end_dist > VIRTUAL_EDGE_THRESHOLD and end_dist <= CONNECTOR_THRESHOLD:
+            end_node = get_or_create_node(end.x, end.y)
+            # Re-query since we may have added start_node
+            current_node_ids_updated = list(node_coords.keys())
+            current_coords_updated = np.array([node_coords[n] for n in current_node_ids_updated])
+            current_tree_updated = cKDTree(current_coords_updated)
+            end_dist_new, end_idx_new = current_tree_updated.query([end.x, end.y])
+
+            if end_dist_new > VIRTUAL_EDGE_THRESHOLD:
+                nearest_road_node = current_node_ids_updated[end_idx_new]
+                if end_node != nearest_road_node and not G.has_edge(end_node, nearest_road_node):
+                    G.add_edge(end_node, nearest_road_node,
+                              length=end_dist_new,
+                              has_bike_lane=False,
+                              is_connector=True)
+                    connections_made += 1
+
+        # Create nodes and edges along the bike lane itself
+        if line_geom.length > LANE_NODE_INTERVAL:
+            num_segments = max(2, int(line_geom.length / LANE_NODE_INTERVAL))
+            prev_node = None
+
+            for i in range(num_segments + 1):
+                t = i / num_segments
+                pt = line_geom.interpolate(t, normalized=True)
+                node = get_or_create_node(pt.x, pt.y)
+
+                if prev_node is not None and prev_node != node:
+                    segment_length = line_geom.length / num_segments
+                    if not G.has_edge(prev_node, node):
+                        G.add_edge(prev_node, node,
+                                  length=segment_length,
+                                  has_bike_lane=True,
+                                  is_virtual=True)
+                        connections_made += 1
+
+                prev_node = node
+        else:
+            # Short lane - just connect endpoints
+            start_node = get_or_create_node(start.x, start.y)
+            end_node = get_or_create_node(end.x, end.y)
+            if start_node != end_node and not G.has_edge(start_node, end_node):
+                G.add_edge(start_node, end_node,
+                          length=line_geom.length,
+                          has_bike_lane=True,
+                          is_virtual=True)
+                connections_made += 1
+
+        return connections_made
+
+    # Process all bike lanes for off-road connections
+    offroad_connections = 0
+    offroad_lanes = 0
+    for bl_gdf in bike_lanes_list:
+        if bl_gdf is None or len(bl_gdf) == 0:
+            continue
+        bl_proj = bl_gdf.to_crs(TARGET_CRS)
+        for _, row in bl_proj.iterrows():
+            geom = row.geometry
+            if geom is None or geom.is_empty:
+                continue
+            if geom.geom_type == 'LineString':
+                count = connect_offroad_lane(geom)
+                if count > 0:
+                    offroad_connections += count
+                    offroad_lanes += 1
+            elif geom.geom_type == 'MultiLineString':
+                for line in geom.geoms:
+                    count = connect_offroad_lane(line)
+                    if count > 0:
+                        offroad_connections += count
+                        offroad_lanes += 1
+
+    if offroad_connections > 0:
+        print(f"  Connected {offroad_lanes} off-road bike lanes with {offroad_connections} edges")
+
     # Connect area centroids to the nearest roads
     # This ensures every area has a proper connection to the network
     if areas_proj is not None and len(road_geoms) > 0:
