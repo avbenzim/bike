@@ -3,8 +3,11 @@
 % ============================================================
 % PACKAGES
 % ============================================================
-\usepackage[utf8]{inputenc}
-\usepackage[T1]{fontenc}
+\usepackage{fontspec}
+\usepackage{polyglossia}
+\setmainlanguage{english}
+\setotherlanguage{hebrew}
+\newfontfamily\hebrewfont{DejaVu Sans}[Script=Hebrew]
 \usepackage{amsmath,amssymb,amsfonts}
 \usepackage{graphicx}
 \usepackage{booktabs}
@@ -27,6 +30,8 @@
 % ============================================================
 % DOCUMENT SETTINGS
 % ============================================================
+\graphicspath{{figures/}}
+
 \hypersetup{
     colorlinks=true,
     linkcolor=blue,
@@ -57,7 +62,7 @@
 % ABSTRACT
 % ============================================================
 \begin{abstract}
-\noindent Urban cycling infrastructure plays a critical role in sustainable transportation systems, yet municipal planners often face resource constraints that necessitate strategic prioritization of bike lane investments. This paper presents a novel methodology for ranking proposed bike lanes based on their potential contribution to city-wide accessibility using a gravity-based model adapted from economic geography. We apply this framework to Jerusalem, Israel, evaluating 25 proposed ``wishing list'' bike lanes against existing infrastructure. Our model computes accessibility as the sum of population-employment interactions weighted by travel cost, where roads lacking bike infrastructure incur a multiplicative penalty factor ($K$). Using Dijkstra's shortest path algorithm with penalty-adjusted edge weights, we calculate how each proposed lane affects the aggregate accessibility metric. Results demonstrate that lanes providing critical network connectivity---particularly those bridging existing infrastructure segments---generate disproportionately high accessibility gains. The top-ranked lane (Derech Hebron) improves city-wide accessibility by 2.14\% at default parameters, while network completion strategies focusing on gaps in the central business district yield cumulative improvements exceeding 12\%. Sensitivity analyses across $K$ values (2--1000) and distance decay parameters ($\theta = -0.5$ to $-3.0$) reveal robust rankings for high-impact lanes while demonstrating how parameter choices affect the prioritization of local versus regional connections. Our web-based interactive tool enables planners to explore scenarios dynamically and draw custom proposed lanes for immediate evaluation. This approach offers transportation planners a theoretically grounded, empirically implementable framework for maximizing the return on cycling infrastructure investments.
+\noindent Urban cycling infrastructure plays a critical role in sustainable transportation systems, yet municipal planners often face resource constraints that necessitate strategic prioritization of bike lane investments. This paper presents a novel methodology for ranking proposed bike lanes based on their potential contribution to city-wide accessibility using a gravity-based model adapted from economic geography. We apply this framework to Jerusalem, Israel, evaluating 24 proposed ``wishing list'' bike lanes against existing infrastructure. Our model computes accessibility as the sum of population-employment interactions weighted by travel cost, where roads lacking bike infrastructure incur a multiplicative penalty factor ($K$). Using Dijkstra's shortest path algorithm with penalty-adjusted edge weights, we calculate how each proposed lane affects the aggregate accessibility metric. Results demonstrate that lanes providing critical network connectivity---particularly those bridging existing infrastructure segments---generate disproportionately high accessibility gains. The top-ranked lane (Derech Hebron) improves city-wide accessibility by 2.14\% at default parameters, while network completion strategies focusing on gaps in the central business district yield cumulative improvements exceeding 12\%. Sensitivity analyses across $K$ values (2--1000) and distance decay parameters ($\theta = -0.5$ to $-3.0$) reveal robust rankings for high-impact lanes while demonstrating how parameter choices affect the prioritization of local versus regional connections. Our web-based interactive tool enables planners to explore scenarios dynamically and draw custom proposed lanes for immediate evaluation. This approach offers transportation planners a theoretically grounded, empirically implementable framework for maximizing the return on cycling infrastructure investments.
 
 \vspace{1em}
 \noindent\textbf{Keywords:} Bicycle infrastructure planning; Accessibility modeling; Gravity model; Network analysis; Sustainable transportation; Jerusalem; GIS
@@ -83,7 +88,7 @@ Our primary contributions are:
 
 \begin{enumerate}
     \item \textbf{Methodological innovation}: Adaptation of gravity-based accessibility models to bike lane prioritization with a tunable preference parameter
-    \item \textbf{Empirical application}: Comprehensive analysis of 25 proposed lanes in Jerusalem using real population, employment, and network data
+    \item \textbf{Empirical application}: Comprehensive analysis of 24 proposed lanes in Jerusalem using real population, employment, and network data
     \item \textbf{Sensitivity analysis}: Examination of how parameter choices affect rankings and identification of robustly high-impact investments
     \item \textbf{Practical tool}: Development of an interactive web-based platform enabling planners to explore scenarios and evaluate custom proposals
 \end{enumerate}
@@ -162,21 +167,7 @@ This formulation captures three fundamental aspects of accessibility: the quanti
 
 The power function $\tau^{\theta}$ models declining interaction propensity with distance. The parameter $\theta$ controls the decay rate, as shown in Table~\ref{tab:theta_values}.
 
-\begin{table}[H]
-\centering
-\caption{Distance Decay Parameter Interpretation}
-\label{tab:theta_values}
-\begin{tabular}{@{}ll@{}}
-\toprule
-\textbf{Parameter Value} & \textbf{Interpretation} \\
-\midrule
-$\theta = -0.5$ & Slow decay; long trips acceptable \\
-$\theta = -1.0$ & Moderate decay (default) \\
-$\theta = -2.0$ & Fast decay; only nearby destinations matter \\
-$\theta = -3.0$ & Very fast decay; highly localized trips \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{tables/table1_theta.tex}
 
 Lower (more negative) $\theta$ values emphasize local accessibility, while higher values give more weight to longer-distance connections.
 
@@ -229,22 +220,7 @@ The key mechanism for incorporating cycling infrastructure preferences is a mult
 
 This formulation reflects that cyclists perceive roads without protected infrastructure as effectively longer---they would prefer to detour on bike lanes rather than take the shortest physical route. The parameter $K$ calibrates this preference, as shown in Table~\ref{tab:k_values}.
 
-\begin{table}[H]
-\centering
-\caption{K-Penalty Parameter Interpretation}
-\label{tab:k_values}
-\begin{tabular}{@{}ll@{}}
-\toprule
-\textbf{K Value} & \textbf{Interpretation} \\
-\midrule
-$K = 2$ & Mild penalty; cyclists tolerate mixed traffic \\
-$K = 10$ & Moderate preference for bike lanes \\
-$K = 100$ & Strong preference (default) \\
-$K = 500$ & Very strong preference \\
-$K = 1000$ & Near-exclusive use of bike lanes \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{tables/table2_k.tex}
 
 Higher $K$ values produce routing that strongly favors bike lanes even when detours are required, while lower values allow more direct routes through mixed traffic when bike lanes are unavailable.
 
@@ -359,24 +335,7 @@ Jerusalem's Transportation Master Plan identifies cycling promotion as a strateg
 
 Table~\ref{tab:data_sources} summarizes data sources used in this analysis.
 
-\begin{table}[H]
-\centering
-\caption{Data Sources}
-\label{tab:data_sources}
-\begin{tabular}{@{}lll@{}}
-\toprule
-\textbf{Data} & \textbf{Source} & \textbf{Description} \\
-\midrule
-Statistical Areas & JTMP Team & 98 geographic units \\
-Population & JTMP Team & Residents per area, 2020--2040 \\
-Employment & JTMP Team & Jobs per area, 2020--2040 \\
-Completed Bike Lanes & JTMP Team & Existing infrastructure \\
-Under Construction & JTMP Team & Lanes being built \\
-Wishing List Lanes & Author & 25 proposed future lanes \\
-Road Network & OpenStreetMap & Complete road network \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{tables/table3_data_sources.tex}
 
 \noindent Note: JTMP = Jerusalem Transportation Master Plan
 
@@ -391,45 +350,9 @@ The processed network comprises:
 
 \subsection{Proposed Lanes (Wishing List)}
 
-Table~\ref{tab:wishing_list} presents the 25 proposed bike lanes evaluated in this study.
+Table~\ref{tab:wishing_list} presents the 24 proposed bike lanes evaluated in this study.
 
-\begin{table}[H]
-\centering
-\caption{Wishing List Bike Lanes}
-\label{tab:wishing_list}
-\small
-\begin{tabular}{@{}clll@{}}
-\toprule
-\textbf{ID} & \textbf{Lane Name} & \textbf{Location} & \textbf{Length (m)} \\
-\midrule
-1 & Ha'Ari-Metudela & Central-West & 482 \\
-2 & Agron-Ramban & City center & 785 \\
-3 & Keren HaYesod-King George & Commercial corridor & 1,650 \\
-4 & Derech Hebron & Southern spine & 4,850 \\
-5 & Jabotinsky & East-West connector & 1,120 \\
-6 & George Adam Smith-Lehi & Northern residential & 620 \\
-7 & Herzl & Western arterial & 2,480 \\
-8 & Ben Zakai-Yehuda HaNasi & German Colony & 1,720 \\
-9 & Rachel Imenu-Hizkiyahu & Southern neighborhoods & 1,340 \\
-10 & Bar Lev & Northern spine & 4,150 \\
-11 & Tzvi Yehuda & Rehavia connector & 680 \\
-12 & Baron Hirsch-Eliezer HaLevi & Central neighborhoods & 520 \\
-13 & Elazar HaModa'i-Katamon & Katamon link & 890 \\
-14 & HaPalmach & Southern central & 730 \\
-15 & Bezek-Beit & Nayot-Herzl connection & 1,850 \\
-16 & Yirmiyahu-Bar Ilan-Eshkol & Northern East-West & 3,480 \\
-17 & Golda-Shmuel HaNavi & North-Central spine & 3,120 \\
-18 & Strauss-Yehezkel & Historic center & 890 \\
-19 & Begin (Givat Ram) & Government center & 1,480 \\
-20 & Golomb & Gap completion & 1,050 \\
-21 & Kolitz & Gap completion & 650 \\
-22 & Pierre Koenig & South-Central & 1,340 \\
-23 & Shamgar-Ohel Yehoshua & Northern connector & 1,720 \\
-24 & Bezalel-Rabin & Cultural corridor & 2,180 \\
-25 & HaPalmach Extension & Southern extension & 890 \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{tables/table4_wishing_list.tex}
 
 % ============================================================
 % 5. RESULTS
@@ -445,55 +368,16 @@ Spatial patterns of accessibility reveal substantial variation across the city. 
 
 \begin{figure}[H]
 \centering
-\begin{tikzpicture}
-    % Placeholder for accessibility map
-    \draw[thick] (0,0) rectangle (10,7);
-    \node[align=center] at (5,3.5) {\textit{Figure placeholder:}\\ \textit{Baseline Origin Accessibility by Statistical Area}\\ \textit{Color scale: Red (low) to Green (high)}};
-\end{tikzpicture}
+\includegraphics[width=\textwidth]{figure1_baseline_accessibility.pdf}
 \caption{Baseline Origin Accessibility by Statistical Area}
 \label{fig:baseline_accessibility}
 \end{figure}
 
 \subsection{Lane Rankings: Additive Mode}
 
-Table~\ref{tab:lane_rankings} presents the ranking of all 25 proposed lanes by their marginal contribution to city-wide accessibility at default parameters.
+Table~\ref{tab:lane_rankings} presents the ranking of all 24 proposed lanes by their marginal contribution to city-wide accessibility at default parameters.
 
-\begin{table}[H]
-\centering
-\caption{Lane Rankings -- Additive Mode ($K=100$, $\theta=-1.0$)}
-\label{tab:lane_rankings}
-\begin{tabular}{@{}clcc@{}}
-\toprule
-\textbf{Rank} & \textbf{Lane Name} & \textbf{\% Improvement} & \textbf{Cumulative \%} \\
-\midrule
-1 & Derech Hebron & 2.14 & 2.14 \\
-2 & Bar Lev & 1.87 & 4.01 \\
-3 & Keren HaYesod-King George & 1.62 & 5.63 \\
-4 & Golda-Shmuel HaNavi & 1.48 & 7.11 \\
-5 & Yirmiyahu-Bar Ilan-Eshkol & 1.23 & 8.34 \\
-6 & Herzl & 1.15 & 9.49 \\
-7 & Bezalel-Rabin & 0.98 & 10.47 \\
-8 & Bezek-Beit & 0.87 & 11.34 \\
-9 & Begin (Givat Ram) & 0.76 & 12.10 \\
-10 & Shamgar-Ohel Yehoshua & 0.64 & 12.74 \\
-11 & Strauss-Yehezkel & 0.58 & 13.32 \\
-12 & Ben Zakai-Yehuda HaNasi & 0.52 & 13.84 \\
-13 & Pierre Koenig & 0.47 & 14.31 \\
-14 & Rachel Imenu-Hizkiyahu & 0.43 & 14.74 \\
-15 & Jabotinsky & 0.38 & 15.12 \\
-16 & Agron-Ramban & 0.34 & 15.46 \\
-17 & Elazar HaModa'i-Katamon & 0.31 & 15.77 \\
-18 & HaPalmach & 0.28 & 16.05 \\
-19 & George Adam Smith-Lehi & 0.24 & 16.29 \\
-20 & Golomb & 0.21 & 16.50 \\
-21 & Tzvi Yehuda & 0.18 & 16.68 \\
-22 & Kolitz & 0.15 & 16.83 \\
-23 & Ha'Ari-Metudela & 0.12 & 16.95 \\
-24 & Baron Hirsch-Eliezer HaLevi & 0.09 & 17.04 \\
-25 & HaPalmach Extension & 0.07 & 17.11 \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{tables/table5_rankings.tex}
 
 \subsection{Analysis of Top-Ranked Lanes}
 
@@ -533,22 +417,7 @@ Despite moderate length (1.65 km), its central location and connectivity generat
 
 Table~\ref{tab:sensitivity_k} shows how rankings change across $K$ values.
 
-\begin{table}[H]
-\centering
-\caption{Top 5 Lane Rankings by K Value}
-\label{tab:sensitivity_k}
-\begin{tabular}{@{}clllll@{}}
-\toprule
-\textbf{Rank} & \textbf{K=10} & \textbf{K=50} & \textbf{K=100} & \textbf{K=500} & \textbf{K=1000} \\
-\midrule
-1 & Derech Hebron & Derech Hebron & Derech Hebron & Derech Hebron & Bar Lev \\
-2 & Herzl & Bar Lev & Bar Lev & Bar Lev & Derech Hebron \\
-3 & Bar Lev & Keren HaYesod & Keren HaYesod & Keren HaYesod & Golda-Shmuel \\
-4 & Keren HaYesod & Herzl & Golda-Shmuel & Golda-Shmuel & Keren HaYesod \\
-5 & Golda-Shmuel & Golda-Shmuel & Yirmiyahu & Yirmiyahu & Yirmiyahu \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{tables/table6_sensitivity_k.tex}
 
 Key observations:
 \begin{itemize}
@@ -561,22 +430,7 @@ Key observations:
 
 Table~\ref{tab:sensitivity_theta} shows rankings across distance decay parameters.
 
-\begin{table}[H]
-\centering
-\caption{Top 5 Lane Rankings by $\theta$ Value}
-\label{tab:sensitivity_theta}
-\begin{tabular}{@{}clllll@{}}
-\toprule
-\textbf{Rank} & $\theta=-0.5$ & $\theta=-1.0$ & $\theta=-1.5$ & $\theta=-2.0$ & $\theta=-3.0$ \\
-\midrule
-1 & Bar Lev & Derech Hebron & Derech Hebron & Keren HaYesod & Keren HaYesod \\
-2 & Derech Hebron & Bar Lev & Keren HaYesod & Derech Hebron & Strauss-Yehezkel \\
-3 & Yirmiyahu & Keren HaYesod & Bar Lev & Strauss-Yehezkel & Agron-Ramban \\
-4 & Golda-Shmuel & Golda-Shmuel & Golda-Shmuel & Agron-Ramban & Jabotinsky \\
-5 & Keren HaYesod & Yirmiyahu & Strauss-Yehezkel & Bezalel-Rabin & Bezalel-Rabin \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{tables/table7_sensitivity_theta.tex}
 
 Key observations:
 \begin{itemize}
@@ -589,22 +443,7 @@ Key observations:
 
 Table~\ref{tab:temporal} shows how demographic changes affect lane rankings.
 
-\begin{table}[H]
-\centering
-\caption{Top 5 Rankings by Year}
-\label{tab:temporal}
-\begin{tabular}{@{}clllll@{}}
-\toprule
-\textbf{Rank} & \textbf{2020} & \textbf{2025} & \textbf{2030} & \textbf{2035} & \textbf{2040} \\
-\midrule
-1 & Derech Hebron & Derech Hebron & Derech Hebron & Bar Lev & Bar Lev \\
-2 & Bar Lev & Bar Lev & Bar Lev & Derech Hebron & Derech Hebron \\
-3 & Keren HaYesod & Keren HaYesod & Keren HaYesod & Keren HaYesod & Golda-Shmuel \\
-4 & Golda-Shmuel & Golda-Shmuel & Golda-Shmuel & Golda-Shmuel & Keren HaYesod \\
-5 & Herzl & Yirmiyahu & Yirmiyahu & Yirmiyahu & Yirmiyahu \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{tables/table8_temporal.tex}
 
 Projected population and employment growth in northern Jerusalem increases the priority of Bar Lev and northern connector lanes over time.
 
@@ -612,22 +451,7 @@ Projected population and employment growth in northern Jerusalem increases the p
 
 Table~\ref{tab:phases} evaluates cumulative benefits of implementing the top-ranked lanes sequentially.
 
-\begin{table}[H]
-\centering
-\caption{Cumulative Accessibility Improvement by Implementation Phase}
-\label{tab:phases}
-\begin{tabular}{@{}llc@{}}
-\toprule
-\textbf{Phase} & \textbf{Lanes Added} & \textbf{Cumulative \%} \\
-\midrule
-Phase 1 (Top 3) & Derech Hebron, Bar Lev, Keren HaYesod & 5.63 \\
-Phase 2 (+3) & + Golda-Shmuel, Yirmiyahu, Herzl & 9.49 \\
-Phase 3 (+3) & + Bezalel-Rabin, Bezek-Beit, Begin & 12.10 \\
-Phase 4 (+3) & + Shamgar, Strauss, Ben Zakai & 14.36 \\
-Complete (All 25) & All proposed lanes & 17.11 \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{tables/table9_phases.tex}
 
 \subsection{Path Finding Examples}
 
@@ -685,11 +509,7 @@ Areas with minimal improvement ($<$3\%):
 
 \begin{figure}[H]
 \centering
-\begin{tikzpicture}
-    % Placeholder for improvement map
-    \draw[thick] (0,0) rectangle (10,7);
-    \node[align=center] at (5,3.5) {\textit{Figure placeholder:}\\ \textit{Accessibility Improvement (\%) with Top 5 Lanes}\\ \textit{Darker shades indicate greater improvement}};
-\end{tikzpicture}
+\includegraphics[width=\textwidth]{figure2_improvement_top5.pdf}
 \caption{Accessibility Improvement (\%) with Top 5 Lanes}
 \label{fig:improvement_map}
 \end{figure}
@@ -776,7 +596,7 @@ Several extensions could enhance this methodology:
 
 This paper presents a gravity-based accessibility methodology for prioritizing urban bike lane investments. By adapting economic geography models to cycling infrastructure evaluation, we provide a theoretically grounded framework that captures network effects often missed by traditional demand-based approaches.
 
-Application to Jerusalem's 25 proposed bike lanes reveals substantial variation in potential contributions, with the top-ranked lane (Derech Hebron) providing over 2\% city-wide accessibility improvement. Sensitivity analyses demonstrate robust rankings for the highest-impact investments while illustrating how parameter choices affect prioritization of local versus regional connections.
+Application to Jerusalem's 24 proposed bike lanes reveals substantial variation in potential contributions, with the top-ranked lane (Derech Hebron) providing over 2\% city-wide accessibility improvement. Sensitivity analyses demonstrate robust rankings for the highest-impact investments while illustrating how parameter choices affect prioritization of local versus regional connections.
 
 Our interactive web-based tool enables planners to explore scenarios dynamically, compare alternative configurations, and evaluate custom proposals. This practical implementation bridges the gap between methodological innovation and planning practice.
 
@@ -886,36 +706,11 @@ Tsivanidis, N. (2024).
 
 \subsection{Computational Performance}
 
-\begin{table}[H]
-\centering
-\begin{tabular}{@{}ll@{}}
-\toprule
-\textbf{Operation} & \textbf{Runtime} \\
-\midrule
-Network construction & 15--30 seconds \\
-Single accessibility calculation & 30--60 seconds \\
-Lane ranking (25 lanes) & 10--15 minutes \\
-Path finding (single pair) & $<$100 milliseconds \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{tables/table10_performance.tex}
 
 \subsection{Network Statistics}
 
-\begin{table}[H]
-\centering
-\begin{tabular}{@{}ll@{}}
-\toprule
-\textbf{Metric} & \textbf{Value} \\
-\midrule
-Total nodes & 8,247 \\
-Total edges & 11,438 \\
-Statistical areas & 98 \\
-Node merge tolerance & 15 meters \\
-Gap connection threshold & 50 meters \\
-\bottomrule
-\end{tabular}
-\end{table}
+\input{tables/table11_network_stats.tex}
 
 \section{Dijkstra's Algorithm with K-Penalty}
 \label{app:algorithm}
