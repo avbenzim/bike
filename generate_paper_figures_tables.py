@@ -20,6 +20,8 @@ import warnings
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
 from matplotlib.patches import Patch
+from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.lines import Line2D
 from shapely.geometry import Point
 from shapely.strtree import STRtree
 import time
@@ -31,6 +33,60 @@ warnings.filterwarnings('ignore')
 plt.rcParams['pdf.fonttype'] = 42
 plt.rcParams['font.family'] = 'serif'
 plt.rcParams['font.size'] = 10
+
+# Color scheme matching the HTML interactive map
+# Spectral colormap: blue -> cyan -> yellow -> orange -> red
+SPECTRAL_COLORS = [
+    (0.0, '#0000CD'),   # Dark blue (low)
+    (0.25, '#00CED1'),  # Cyan
+    (0.5, '#FFFF00'),   # Yellow
+    (0.75, '#FFA500'),  # Orange
+    (1.0, '#DC143C'),   # Crimson red (high)
+]
+
+# Lane layer colors from HTML
+LANE_COLORS = {
+    'existing': '#1B5E20',      # Dark green
+    'construction': '#81C784',  # Light green
+    'planning': '#2196F3',      # Blue
+    'checking': '#00BCD4',      # Cyan
+    'wishing': '#FF9800',       # Orange
+    'selected': '#9b59b6',      # Purple
+    'user_drawn': '#E91E63',    # Pink
+}
+
+# Impact colors
+IMPACT_COLORS = {
+    'positive': '#4caf50',      # Green border
+    'positive_bg': '#e8f5e9',   # Light green background
+    'negative': '#f44336',      # Red border
+    'negative_bg': '#ffebee',   # Light red background
+    'neutral': '#BEBEBE',       # Gray
+}
+
+# UI colors
+UI_COLORS = {
+    'header': '#2c3e50',
+    'accent': '#3498db',
+    'success': '#27ae60',
+    'origin_marker': '#27ae60',
+    'dest_marker': '#e74c3c',
+}
+
+def create_spectral_colormap():
+    """Create a custom colormap matching the HTML spectral gradient."""
+    colors = []
+    positions = []
+    for pos, hexcolor in SPECTRAL_COLORS:
+        positions.append(pos)
+        rgb = mcolors.to_rgb(hexcolor)
+        colors.append(rgb)
+
+    cmap = LinearSegmentedColormap.from_list('spectral_custom', list(zip(positions, colors)))
+    return cmap
+
+# Create the spectral colormap for use in figures
+SPECTRAL_CMAP = create_spectral_colormap()
 
 script_dir = Path(__file__).parent
 fiona.drvsupport.supported_drivers['KML'] = 'rw'
@@ -641,23 +697,50 @@ Gap connection threshold & 50 meters \\\\
 """
 
 
-def generate_figure_1_baseline_accessibility(areas, acc_orig, output_path):
-    """Generate Figure 1: Baseline Origin Accessibility map."""
-    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+def generate_figure_1_baseline_accessibility(areas, acc_orig, acc_dest, output_path):
+    """Generate Figure 1: Baseline Accessibility map showing both origin and destination.
+
+    This figure presents the baseline accessibility landscape across Jerusalem's statistical
+    areas before any proposed bike lanes from the wishing list are added to the network.
+    The visualization uses a spectral color gradient that ranges from dark blue representing
+    areas with low accessibility values through cyan, yellow, and orange, culminating in
+    crimson red for areas with the highest accessibility. This color scheme maintains
+    consistency with the interactive web-based analysis tool, ensuring that researchers
+    and planners can seamlessly transition between the static figures and the dynamic
+    exploration capabilities of the HTML interface.
+
+    The origin accessibility metric captures how well residents of each statistical area
+    can reach employment opportunities throughout the city via the bike network. Areas
+    with higher origin accessibility values indicate neighborhoods where cycling provides
+    effective access to jobs, commercial centers, and other destinations. Conversely,
+    areas with low origin accessibility represent neighborhoods that would benefit most
+    from improved cycling infrastructure connecting them to the broader urban fabric.
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(14, 7))
 
     areas_plot = areas.to_crs(WGS84).copy()
-    areas_plot['accessibility'] = acc_orig
+    areas_plot['acc_orig'] = acc_orig
+    areas_plot['acc_dest'] = acc_dest
 
-    # Create color map (red=low, green=high)
-    cmap = plt.cm.RdYlGn
+    # Origin accessibility (left panel)
+    ax1 = axes[0]
+    areas_plot.plot(column='acc_orig', cmap=SPECTRAL_CMAP, ax=ax1, edgecolor=UI_COLORS['header'],
+                    linewidth=0.5, legend=True, legend_kwds={'label': 'Origin Accessibility', 'shrink': 0.7})
+    ax1.set_title('Origin Accessibility', fontsize=12, fontweight='bold', color=UI_COLORS['header'])
+    ax1.set_xlabel('Longitude', fontsize=10)
+    ax1.set_ylabel('Latitude', fontsize=10)
+    ax1.set_aspect('equal')
 
-    areas_plot.plot(column='accessibility', cmap=cmap, ax=ax, edgecolor='black',
-                    linewidth=0.5, legend=True, legend_kwds={'label': 'Origin Accessibility'})
+    # Destination accessibility (right panel)
+    ax2 = axes[1]
+    areas_plot.plot(column='acc_dest', cmap=SPECTRAL_CMAP, ax=ax2, edgecolor=UI_COLORS['header'],
+                    linewidth=0.5, legend=True, legend_kwds={'label': 'Destination Accessibility', 'shrink': 0.7})
+    ax2.set_title('Destination Accessibility', fontsize=12, fontweight='bold', color=UI_COLORS['header'])
+    ax2.set_xlabel('Longitude', fontsize=10)
+    ax2.set_ylabel('Latitude', fontsize=10)
+    ax2.set_aspect('equal')
 
-    ax.set_title('Baseline Origin Accessibility by Statistical Area', fontsize=14, fontweight='bold')
-    ax.set_xlabel('Longitude')
-    ax.set_ylabel('Latitude')
-    ax.set_aspect('equal')
+    fig.suptitle('Baseline Accessibility by Statistical Area', fontsize=14, fontweight='bold', y=1.02)
 
     plt.tight_layout()
     plt.savefig(output_path, format='pdf', dpi=300, bbox_inches='tight')
@@ -665,25 +748,353 @@ def generate_figure_1_baseline_accessibility(areas, acc_orig, output_path):
     print(f"  Saved {output_path}")
 
 
-def generate_figure_2_improvement(areas, improvement_pct, output_path):
-    """Generate Figure 2: Accessibility Improvement with Top 5 Lanes."""
-    fig, ax = plt.subplots(1, 1, figsize=(10, 8))
+def generate_figure_2_improvement(areas, improvement_orig, improvement_dest, top_lanes, output_path):
+    """Generate Figure 2: Accessibility Improvement with Top 5 Lanes for both origin and destination.
+
+    This figure illustrates the transformative potential of strategic bike lane investments
+    by visualizing how the top five ranked lanes from the wishing list would improve
+    accessibility across Jerusalem. The analysis considers both origin accessibility,
+    which measures how residents benefit from improved connections to destinations, and
+    destination accessibility, which captures how employment centers and services become
+    more reachable from residential areas throughout the city.
+
+    The improvement percentages shown in this figure represent the relative change in
+    accessibility values compared to the baseline network configuration. Areas displayed
+    in warmer colors toward the red end of the spectrum experience the most significant
+    improvements, indicating that these neighborhoods would see substantial benefits from
+    the proposed infrastructure investments. The spatial distribution of improvements
+    reveals important patterns about which communities stand to gain the most from the
+    prioritized lane construction sequence.
+
+    Understanding both origin and destination perspectives is essential for comprehensive
+    transportation planning. A neighborhood might show modest origin accessibility gains
+    but substantial destination improvements if it serves as an employment hub that becomes
+    better connected to residential areas. Conversely, residential neighborhoods often
+    show stronger origin improvements as new lanes connect them to commercial and employment
+    centers elsewhere in the city.
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(14, 7))
 
     areas_plot = areas.to_crs(WGS84).copy()
-    areas_plot['improvement'] = improvement_pct
+    areas_plot['imp_orig'] = improvement_orig
+    areas_plot['imp_dest'] = improvement_dest
 
-    cmap = plt.cm.Blues
+    # Create a diverging colormap for improvements (white to colors based on improvement)
+    # Use spectral for positive improvements
+    vmax = max(improvement_orig.max(), improvement_dest.max())
+    vmin = 0
 
-    areas_plot.plot(column='improvement', cmap=cmap, ax=ax, edgecolor='black',
-                    linewidth=0.5, legend=True,
-                    legend_kwds={'label': 'Accessibility Improvement (%)'})
+    # Origin improvement (left panel)
+    ax1 = axes[0]
+    areas_plot.plot(column='imp_orig', cmap=SPECTRAL_CMAP, ax=ax1, edgecolor=UI_COLORS['header'],
+                    linewidth=0.5, legend=True, vmin=vmin, vmax=vmax,
+                    legend_kwds={'label': 'Improvement (%)', 'shrink': 0.7})
+    ax1.set_title('Origin Accessibility Improvement', fontsize=12, fontweight='bold', color=UI_COLORS['header'])
+    ax1.set_xlabel('Longitude', fontsize=10)
+    ax1.set_ylabel('Latitude', fontsize=10)
+    ax1.set_aspect('equal')
 
-    ax.set_title('Accessibility Improvement (%) with Top 5 Lanes', fontsize=14, fontweight='bold')
-    ax.set_xlabel('Longitude')
-    ax.set_ylabel('Latitude')
-    ax.set_aspect('equal')
+    # Destination improvement (right panel)
+    ax2 = axes[1]
+    areas_plot.plot(column='imp_dest', cmap=SPECTRAL_CMAP, ax=ax2, edgecolor=UI_COLORS['header'],
+                    linewidth=0.5, legend=True, vmin=vmin, vmax=vmax,
+                    legend_kwds={'label': 'Improvement (%)', 'shrink': 0.7})
+    ax2.set_title('Destination Accessibility Improvement', fontsize=12, fontweight='bold', color=UI_COLORS['header'])
+    ax2.set_xlabel('Longitude', fontsize=10)
+    ax2.set_ylabel('Latitude', fontsize=10)
+    ax2.set_aspect('equal')
+
+    # Create title with lane names
+    lane_names = ', '.join(top_lanes[:3]) + (' and others' if len(top_lanes) > 3 else '')
+    fig.suptitle(f'Accessibility Improvement (%) with Top {len(top_lanes)} Lanes\n({lane_names})',
+                 fontsize=13, fontweight='bold', y=1.04)
 
     plt.tight_layout()
+    plt.savefig(output_path, format='pdf', dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"  Saved {output_path}")
+
+
+def generate_figure_3_single_lane_impact(areas, lane_name, imp_orig, imp_dest, lane_geom, output_path):
+    """Generate a figure showing the impact of a single lane on both origin and destination accessibility.
+
+    This figure provides a detailed examination of how one specific proposed bike lane
+    would affect accessibility patterns throughout Jerusalem. By isolating the contribution
+    of a single infrastructure element, planners and decision-makers can better understand
+    the spatial reach and magnitude of benefits that each lane provides. The visualization
+    includes the lane geometry itself, rendered prominently on the map to show its physical
+    location and extent within the urban fabric.
+
+    The origin accessibility panel on the left reveals which residential areas would see
+    improved connections to the rest of the city if this lane were constructed. Higher
+    improvement values in specific statistical areas indicate neighborhoods whose residents
+    would benefit from shorter effective cycling distances to employment, services, and
+    amenities. The spatial pattern of origin improvements often radiates outward from
+    the lane location, with the strongest effects observed in areas directly served by
+    or adjacent to the proposed infrastructure.
+
+    The destination accessibility panel on the right shows how the same lane affects the
+    reachability of different areas as destinations. Employment centers, commercial districts,
+    and service locations that become more accessible to cyclists throughout the city
+    appear with higher improvement values. This perspective is particularly valuable for
+    economic development planning, as it identifies which areas would see increased
+    potential customer or worker catchments from improved cycling connectivity.
+    """
+    fig, axes = plt.subplots(1, 2, figsize=(14, 7))
+
+    areas_plot = areas.to_crs(WGS84).copy()
+    areas_plot['imp_orig'] = imp_orig
+    areas_plot['imp_dest'] = imp_dest
+
+    vmax = max(imp_orig.max(), imp_dest.max(), 0.1)  # Ensure at least 0.1 for scale
+    vmin = 0
+
+    # Origin improvement (left panel)
+    ax1 = axes[0]
+    areas_plot.plot(column='imp_orig', cmap=SPECTRAL_CMAP, ax=ax1, edgecolor=UI_COLORS['header'],
+                    linewidth=0.5, legend=True, vmin=vmin, vmax=vmax,
+                    legend_kwds={'label': 'Origin Improvement (%)', 'shrink': 0.7})
+
+    # Plot the lane geometry
+    if lane_geom is not None:
+        if lane_geom.geom_type == 'LineString':
+            coords = list(lane_geom.coords)
+            xs, ys = zip(*[(c[0], c[1]) for c in coords])
+            ax1.plot(xs, ys, color=LANE_COLORS['wishing'], linewidth=4, label='Proposed Lane',
+                     solid_capstyle='round', zorder=10)
+        elif lane_geom.geom_type == 'MultiLineString':
+            for line in lane_geom.geoms:
+                coords = list(line.coords)
+                xs, ys = zip(*[(c[0], c[1]) for c in coords])
+                ax1.plot(xs, ys, color=LANE_COLORS['wishing'], linewidth=4, solid_capstyle='round', zorder=10)
+
+    ax1.set_title(f'Origin Accessibility Impact', fontsize=12, fontweight='bold', color=UI_COLORS['header'])
+    ax1.set_xlabel('Longitude', fontsize=10)
+    ax1.set_ylabel('Latitude', fontsize=10)
+    ax1.set_aspect('equal')
+
+    # Add legend for lane
+    lane_line = Line2D([0], [0], color=LANE_COLORS['wishing'], linewidth=4, label='Proposed Lane')
+    ax1.legend(handles=[lane_line], loc='lower left', fontsize=9)
+
+    # Destination improvement (right panel)
+    ax2 = axes[1]
+    areas_plot.plot(column='imp_dest', cmap=SPECTRAL_CMAP, ax=ax2, edgecolor=UI_COLORS['header'],
+                    linewidth=0.5, legend=True, vmin=vmin, vmax=vmax,
+                    legend_kwds={'label': 'Destination Improvement (%)', 'shrink': 0.7})
+
+    # Plot the lane geometry
+    if lane_geom is not None:
+        if lane_geom.geom_type == 'LineString':
+            coords = list(lane_geom.coords)
+            xs, ys = zip(*[(c[0], c[1]) for c in coords])
+            ax2.plot(xs, ys, color=LANE_COLORS['wishing'], linewidth=4, solid_capstyle='round', zorder=10)
+        elif lane_geom.geom_type == 'MultiLineString':
+            for line in lane_geom.geoms:
+                coords = list(line.coords)
+                xs, ys = zip(*[(c[0], c[1]) for c in coords])
+                ax2.plot(xs, ys, color=LANE_COLORS['wishing'], linewidth=4, solid_capstyle='round', zorder=10)
+
+    ax2.set_title(f'Destination Accessibility Impact', fontsize=12, fontweight='bold', color=UI_COLORS['header'])
+    ax2.set_xlabel('Longitude', fontsize=10)
+    ax2.set_ylabel('Latitude', fontsize=10)
+    ax2.set_aspect('equal')
+    ax2.legend(handles=[lane_line], loc='lower left', fontsize=9)
+
+    fig.suptitle(f'Accessibility Impact of {lane_name}', fontsize=14, fontweight='bold', y=1.02)
+
+    plt.tight_layout()
+    plt.savefig(output_path, format='pdf', dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"  Saved {output_path}")
+
+
+def generate_figure_4_top_lanes_comparison(areas, lane_impacts, output_path):
+    """Generate a multi-panel figure comparing the top ranked lanes side by side.
+
+    This comprehensive visualization presents the accessibility impacts of the top
+    three ranked lanes in a format that facilitates direct comparison. Each row
+    corresponds to one proposed lane, while the columns separate origin and destination
+    accessibility perspectives. By arranging the information in this grid format,
+    planners can quickly identify similarities and differences in how each lane
+    affects the city's cycling accessibility landscape.
+
+    The consistent color scale across all panels ensures that comparisons are meaningful
+    and accurate. A lane showing intense red coloration in multiple statistical areas
+    delivers more concentrated benefits than one with predominantly blue or cyan tones.
+    The spectral color gradient, matching the interactive HTML analysis tool, provides
+    intuitive interpretation where warmer colors indicate stronger improvements and
+    cooler colors represent more modest gains.
+
+    Examining the spatial patterns across lanes reveals important insights about
+    infrastructure complementarity. Lanes that improve accessibility in different
+    parts of the city may together provide broader coverage than lanes with overlapping
+    impact zones. This visualization supports the development of phased implementation
+    strategies that maximize cumulative benefits while ensuring geographic equity in
+    infrastructure investments across Jerusalem's diverse neighborhoods.
+    """
+    n_lanes = min(3, len(lane_impacts))
+    fig, axes = plt.subplots(n_lanes, 2, figsize=(14, 5 * n_lanes))
+
+    if n_lanes == 1:
+        axes = axes.reshape(1, 2)
+
+    areas_plot = areas.to_crs(WGS84).copy()
+
+    # Find global max for consistent color scale
+    vmax = 0
+    for impact in lane_impacts[:n_lanes]:
+        vmax = max(vmax, impact['imp_orig'].max(), impact['imp_dest'].max())
+    vmax = max(vmax, 0.1)
+    vmin = 0
+
+    for i, impact in enumerate(lane_impacts[:n_lanes]):
+        areas_plot['imp_orig'] = impact['imp_orig']
+        areas_plot['imp_dest'] = impact['imp_dest']
+
+        # Origin panel
+        ax1 = axes[i, 0]
+        areas_plot.plot(column='imp_orig', cmap=SPECTRAL_CMAP, ax=ax1, edgecolor=UI_COLORS['header'],
+                        linewidth=0.4, legend=(i == 0), vmin=vmin, vmax=vmax,
+                        legend_kwds={'label': 'Improvement (%)', 'shrink': 0.6} if i == 0 else {})
+
+        # Plot the lane geometry
+        lane_geom = impact.get('geom_wgs84')
+        if lane_geom is not None:
+            if lane_geom.geom_type == 'LineString':
+                coords = list(lane_geom.coords)
+                xs, ys = zip(*[(c[0], c[1]) for c in coords])
+                ax1.plot(xs, ys, color=LANE_COLORS['wishing'], linewidth=3, solid_capstyle='round', zorder=10)
+            elif lane_geom.geom_type == 'MultiLineString':
+                for line in lane_geom.geoms:
+                    coords = list(line.coords)
+                    xs, ys = zip(*[(c[0], c[1]) for c in coords])
+                    ax1.plot(xs, ys, color=LANE_COLORS['wishing'], linewidth=3, solid_capstyle='round', zorder=10)
+
+        ax1.set_title(f'{impact["name"]} - Origin', fontsize=11, fontweight='bold', color=UI_COLORS['header'])
+        ax1.set_aspect('equal')
+        ax1.set_xticks([])
+        ax1.set_yticks([])
+
+        # Destination panel
+        ax2 = axes[i, 1]
+        areas_plot.plot(column='imp_dest', cmap=SPECTRAL_CMAP, ax=ax2, edgecolor=UI_COLORS['header'],
+                        linewidth=0.4, legend=(i == 0), vmin=vmin, vmax=vmax,
+                        legend_kwds={'label': 'Improvement (%)', 'shrink': 0.6} if i == 0 else {})
+
+        if lane_geom is not None:
+            if lane_geom.geom_type == 'LineString':
+                coords = list(lane_geom.coords)
+                xs, ys = zip(*[(c[0], c[1]) for c in coords])
+                ax2.plot(xs, ys, color=LANE_COLORS['wishing'], linewidth=3, solid_capstyle='round', zorder=10)
+            elif lane_geom.geom_type == 'MultiLineString':
+                for line in lane_geom.geoms:
+                    coords = list(line.coords)
+                    xs, ys = zip(*[(c[0], c[1]) for c in coords])
+                    ax2.plot(xs, ys, color=LANE_COLORS['wishing'], linewidth=3, solid_capstyle='round', zorder=10)
+
+        ax2.set_title(f'{impact["name"]} - Destination', fontsize=11, fontweight='bold', color=UI_COLORS['header'])
+        ax2.set_aspect('equal')
+        ax2.set_xticks([])
+        ax2.set_yticks([])
+
+    # Add lane legend
+    lane_line = Line2D([0], [0], color=LANE_COLORS['wishing'], linewidth=4, label='Proposed Lane')
+    fig.legend(handles=[lane_line], loc='lower center', ncol=1, fontsize=10, bbox_to_anchor=(0.5, 0.02))
+
+    fig.suptitle('Comparison of Top Ranked Lanes: Origin vs Destination Impact',
+                 fontsize=14, fontweight='bold', y=0.98)
+
+    plt.tight_layout(rect=[0, 0.05, 1, 0.96])
+    plt.savefig(output_path, format='pdf', dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"  Saved {output_path}")
+
+
+def generate_figure_5_cumulative_impact(areas, cumulative_impacts, output_path):
+    """Generate a figure showing cumulative impact as lanes are added progressively.
+
+    This visualization demonstrates the principle of diminishing marginal returns in
+    bike lane infrastructure investment. As successive lanes are added to the network,
+    each additional lane typically contributes less improvement than the previous one,
+    assuming lanes are constructed in order of their individual rankings. This pattern
+    emerges because the highest-impact lanes address the most significant gaps in the
+    existing network, while subsequent lanes fill progressively smaller connectivity
+    deficiencies.
+
+    The four-panel layout presents snapshots of cumulative accessibility improvement
+    after adding one, two, three, and five lanes respectively. This progression allows
+    planners to visualize how benefits accumulate spatially and to identify threshold
+    points where additional investment yields substantially diminished returns. The
+    consistent color scale across panels enables direct comparison of improvement
+    magnitudes at each stage of implementation.
+
+    Understanding cumulative impacts is essential for budget allocation and phased
+    implementation planning. A municipality with limited resources might choose to
+    implement only the first three lanes if subsequent additions provide minimal
+    additional benefit. Alternatively, the spatial distribution of cumulative benefits
+    might reveal that early-phase investments concentrate improvements in certain
+    neighborhoods, suggesting that later phases should prioritize geographic equity
+    by targeting underserved areas even if absolute accessibility gains are smaller.
+    """
+    n_stages = min(4, len(cumulative_impacts))
+    fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+    axes = axes.flatten()
+
+    areas_plot = areas.to_crs(WGS84).copy()
+
+    # Find global max for consistent color scale
+    vmax = 0
+    for impact in cumulative_impacts[:n_stages]:
+        vmax = max(vmax, impact['imp_orig'].max())
+    vmax = max(vmax, 0.1)
+    vmin = 0
+
+    stage_labels = ['After Top 1 Lane', 'After Top 2 Lanes', 'After Top 3 Lanes', 'After Top 5 Lanes']
+    stages_to_show = [0, 1, 2, 4] if len(cumulative_impacts) >= 5 else list(range(n_stages))
+
+    for i, stage_idx in enumerate(stages_to_show[:4]):
+        if stage_idx >= len(cumulative_impacts):
+            continue
+
+        impact = cumulative_impacts[stage_idx]
+        areas_plot['imp_orig'] = impact['imp_orig']
+
+        ax = axes[i]
+        areas_plot.plot(column='imp_orig', cmap=SPECTRAL_CMAP, ax=ax, edgecolor=UI_COLORS['header'],
+                        linewidth=0.4, legend=True, vmin=vmin, vmax=vmax,
+                        legend_kwds={'label': 'Improvement (%)', 'shrink': 0.6})
+
+        # Plot all lane geometries up to this stage
+        for j in range(stage_idx + 1):
+            lane_geom = cumulative_impacts[j].get('geom_wgs84')
+            if lane_geom is not None:
+                color = LANE_COLORS['wishing'] if j == stage_idx else LANE_COLORS['existing']
+                if lane_geom.geom_type == 'LineString':
+                    coords = list(lane_geom.coords)
+                    xs, ys = zip(*[(c[0], c[1]) for c in coords])
+                    ax.plot(xs, ys, color=color, linewidth=2.5, solid_capstyle='round', zorder=10)
+                elif lane_geom.geom_type == 'MultiLineString':
+                    for line in lane_geom.geoms:
+                        coords = list(line.coords)
+                        xs, ys = zip(*[(c[0], c[1]) for c in coords])
+                        ax.plot(xs, ys, color=color, linewidth=2.5, solid_capstyle='round', zorder=10)
+
+        ax.set_title(f'{stage_labels[i]}\n({impact["lane_names"]})', fontsize=11, fontweight='bold',
+                     color=UI_COLORS['header'])
+        ax.set_aspect('equal')
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+    # Add legend
+    new_lane = Line2D([0], [0], color=LANE_COLORS['wishing'], linewidth=4, label='Newly Added Lane')
+    prev_lanes = Line2D([0], [0], color=LANE_COLORS['existing'], linewidth=4, label='Previously Added Lanes')
+    fig.legend(handles=[new_lane, prev_lanes], loc='lower center', ncol=2, fontsize=10, bbox_to_anchor=(0.5, 0.02))
+
+    fig.suptitle('Cumulative Origin Accessibility Improvement by Implementation Phase',
+                 fontsize=14, fontweight='bold', y=0.98)
+
+    plt.tight_layout(rect=[0, 0.05, 1, 0.96])
     plt.savefig(output_path, format='pdf', dpi=300, bbox_inches='tight')
     plt.close()
     print(f"  Saved {output_path}")
@@ -725,9 +1136,9 @@ def main():
     )
     print(f"  Baseline N = {baseline_N:.2e}")
 
-    # Generate Figure 1: Baseline Accessibility
-    print("Generating Figure 1...")
-    generate_figure_1_baseline_accessibility(areas, acc_orig_base, FIGURES_DIR / 'figure1_baseline_accessibility.pdf')
+    # Generate Figure 1: Baseline Accessibility (now includes both origin and destination)
+    print("Generating Figure 1: Baseline Accessibility...")
+    generate_figure_1_baseline_accessibility(areas, acc_orig_base, acc_dest_base, FIGURES_DIR / 'figure1_baseline_accessibility.pdf')
 
     # Compute lane rankings for default parameters
     print("Computing lane rankings...")
@@ -766,32 +1177,105 @@ def main():
         )
         rankings_by_year[year] = rankings
 
-    # Generate Figure 2: Improvement with Top 5 Lanes
-    print("Generating Figure 2...")
-    # Get top 5 lane edges
+    # Compute individual lane impacts for all top lanes
+    print("Computing individual lane impacts for figures...")
     wishing_proj = wishing.to_crs(TARGET_CRS)
-    top5_edges = set(baseline_edges)
-    for r in rankings_default[:5]:
+    wishing_wgs84 = wishing.to_crs(WGS84)
+
+    lane_impacts = []
+    cumulative_edges = set(baseline_edges)
+    cumulative_impacts = []
+
+    for rank_idx, r in enumerate(rankings_default[:5]):
         # Find the lane index by raw name
         for idx in range(len(wishing_proj)):
             raw_name = wishing_proj.iloc[idx].get('Name')
             if raw_name == r.get('name_raw') or transliterate_name(raw_name) == r['name']:
-                lane_edges = network.mark_bike_lanes([wishing_proj.iloc[[idx]]])
-                top5_edges |= lane_edges
+                # Compute impact of this single lane
+                single_lane_edges = network.mark_bike_lanes([wishing_proj.iloc[[idx]]])
+                edges_with_single = baseline_edges | single_lane_edges
+
+                G_single = network.get_graph_with_lanes(edges_with_single)
+                acc_orig_single, acc_dest_single, _ = compute_accessibility(
+                    G_single, network.node_coords, network.node_tree, network.node_ids,
+                    areas_proj, DEFAULT_THETA, DEFAULT_K, DEFAULT_YEAR
+                )
+
+                # Compute improvements
+                imp_orig = np.zeros(len(areas_proj))
+                imp_dest = np.zeros(len(areas_proj))
+                for i in range(len(areas_proj)):
+                    if acc_orig_base[i] > 0:
+                        imp_orig[i] = ((acc_orig_single[i] - acc_orig_base[i]) / acc_orig_base[i]) * 100
+                    if acc_dest_base[i] > 0:
+                        imp_dest[i] = ((acc_dest_single[i] - acc_dest_base[i]) / acc_dest_base[i]) * 100
+
+                lane_impacts.append({
+                    'name': r['name'],
+                    'name_raw': r.get('name_raw'),
+                    'rank': rank_idx + 1,
+                    'imp_orig': imp_orig.copy(),
+                    'imp_dest': imp_dest.copy(),
+                    'geom_wgs84': wishing_wgs84.iloc[idx].geometry,
+                    'geom_proj': wishing_proj.iloc[idx].geometry,
+                })
+
+                # Compute cumulative impact
+                cumulative_edges |= single_lane_edges
+                G_cumul = network.get_graph_with_lanes(cumulative_edges)
+                acc_orig_cumul, acc_dest_cumul, _ = compute_accessibility(
+                    G_cumul, network.node_coords, network.node_tree, network.node_ids,
+                    areas_proj, DEFAULT_THETA, DEFAULT_K, DEFAULT_YEAR
+                )
+
+                cumul_imp_orig = np.zeros(len(areas_proj))
+                cumul_imp_dest = np.zeros(len(areas_proj))
+                for i in range(len(areas_proj)):
+                    if acc_orig_base[i] > 0:
+                        cumul_imp_orig[i] = ((acc_orig_cumul[i] - acc_orig_base[i]) / acc_orig_base[i]) * 100
+                    if acc_dest_base[i] > 0:
+                        cumul_imp_dest[i] = ((acc_dest_cumul[i] - acc_dest_base[i]) / acc_dest_base[i]) * 100
+
+                lane_names = ', '.join([li['name'] for li in lane_impacts])
+                cumulative_impacts.append({
+                    'imp_orig': cumul_imp_orig.copy(),
+                    'imp_dest': cumul_imp_dest.copy(),
+                    'lane_names': lane_names,
+                    'geom_wgs84': wishing_wgs84.iloc[idx].geometry,
+                })
                 break
 
-    G_top5 = network.get_graph_with_lanes(top5_edges)
-    acc_orig_top5, _, _ = compute_accessibility(
-        G_top5, network.node_coords, network.node_tree, network.node_ids,
-        areas_proj, DEFAULT_THETA, DEFAULT_K, DEFAULT_YEAR
+    # Generate Figure 2: Improvement with Top 5 Lanes (both origin and destination)
+    print("Generating Figure 2: Top 5 Lanes Improvement...")
+    top_lane_names = [li['name'] for li in lane_impacts[:5]]
+    generate_figure_2_improvement(
+        areas,
+        cumulative_impacts[-1]['imp_orig'] if cumulative_impacts else np.zeros(len(areas_proj)),
+        cumulative_impacts[-1]['imp_dest'] if cumulative_impacts else np.zeros(len(areas_proj)),
+        top_lane_names,
+        FIGURES_DIR / 'figure2_improvement_top5.pdf'
     )
 
-    improvement_pct = np.zeros(len(areas_proj))
-    for i in range(len(areas_proj)):
-        if acc_orig_base[i] > 0:
-            improvement_pct[i] = ((acc_orig_top5[i] - acc_orig_base[i]) / acc_orig_base[i]) * 100
+    # Generate Figure 3: Individual lane impact for top 3 lanes
+    print("Generating Figure 3: Individual Lane Impacts...")
+    for i, impact in enumerate(lane_impacts[:3]):
+        output_path = FIGURES_DIR / f'figure3_{i+1}_lane_impact_{impact["name"].replace(" ", "_").replace("/", "-")[:20]}.pdf'
+        generate_figure_3_single_lane_impact(
+            areas,
+            impact['name'],
+            impact['imp_orig'],
+            impact['imp_dest'],
+            impact['geom_wgs84'],
+            output_path
+        )
 
-    generate_figure_2_improvement(areas, improvement_pct, FIGURES_DIR / 'figure2_improvement_top5.pdf')
+    # Generate Figure 4: Top 3 lanes comparison
+    print("Generating Figure 4: Top Lanes Comparison...")
+    generate_figure_4_top_lanes_comparison(areas, lane_impacts[:3], FIGURES_DIR / 'figure4_top_lanes_comparison.pdf')
+
+    # Generate Figure 5: Cumulative impact progression
+    print("Generating Figure 5: Cumulative Impact...")
+    generate_figure_5_cumulative_impact(areas, cumulative_impacts, FIGURES_DIR / 'figure5_cumulative_impact.pdf')
 
     # Generate all tables
     print("Generating tables...")
