@@ -1,0 +1,1201 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 58,
+        "comp_size": 2,
+        "distance": 8.7,
+        "has_road": true
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.19967049946949,
+            31.75337150069478
+          ],
+          [
+            35.19976229946949,
+            31.75337800069478
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 10,
+        "comp_size": 10,
+        "distance": 9.3,
+        "has_road": true
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.23876479947297,
+            31.81938990069025
+          ],
+          [
+            35.23875099947298,
+            31.81947250069023
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 50,
+        "comp_size": 2,
+        "distance": 9.3,
+        "has_road": true
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.18142729947103,
+            31.766574300692277
+          ],
+          [
+            35.18142829947103,
+            31.766658500692287
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 12,
+        "comp_size": 8,
+        "distance": 10.1,
+        "has_road": true
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.208858399471545,
+            31.786118100691915
+          ],
+          [
+            35.20888829947155,
+            31.78620590069191
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 55,
+        "comp_size": 2,
+        "distance": 13.9,
+        "has_road": true
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.182290399468975,
+            31.73834550069527
+          ],
+          [
+            35.18238049946896,
+            31.7382462006953
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 9,
+        "comp_size": 10,
+        "distance": 15.4,
+        "has_road": true
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.208949199470815,
+            31.776132000692964
+          ],
+          [
+            35.209112199470816,
+            31.77612800069297
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 52,
+        "comp_size": 2,
+        "distance": 17.0,
+        "has_road": true
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.18132919947142,
+            31.77193020069172
+          ],
+          [
+            35.18121879947142,
+            31.77180900069174
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 47,
+        "comp_size": 2,
+        "distance": 19.2,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.1812248994687,
+            31.73416180069566
+          ],
+          [
+            35.1811637994687,
+            31.733996600695694
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 27,
+        "comp_size": 4,
+        "distance": 22.3,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.182862099472096,
+            31.781886500690778
+          ],
+          [
+            35.182775599472095,
+            31.78207330069074
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 23,
+        "comp_size": 5,
+        "distance": 26.6,
+        "has_road": true
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.16027559947105,
+            31.757283800691972
+          ],
+          [
+            35.16000079947106,
+            31.757332400691954
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 48,
+        "comp_size": 2,
+        "distance": 27.7,
+        "has_road": true
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.1983359994693,
+            31.750136900695054
+          ],
+          [
+            35.198579599469284,
+            31.750274300695033
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 2,
+        "comp_size": 134,
+        "distance": 30.7,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.20457619947323,
+            31.807583100689413
+          ],
+          [
+            35.20437809947324,
+            31.807802800689373
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 20,
+        "comp_size": 6,
+        "distance": 32.2,
+        "has_road": true
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.222165099468,
+            31.74314440069721
+          ],
+          [
+            35.22232849946803,
+            31.743398700697213
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 17,
+        "comp_size": 6,
+        "distance": 37.6,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.20321849946919,
+            31.750862100695258
+          ],
+          [
+            35.202965899469184,
+            31.750600600695265
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 43,
+        "comp_size": 2,
+        "distance": 40.9,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.22056009947156,
+            31.791711800692024
+          ],
+          [
+            35.2202003994716,
+            31.791916300691973
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 39,
+        "comp_size": 2,
+        "distance": 48.3,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.17250599947145,
+            31.768383000691557
+          ],
+          [
+            35.172066599471464,
+            31.768162000691554
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 51,
+        "comp_size": 2,
+        "distance": 50.6,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.20556579946895,
+            31.748783900695614
+          ],
+          [
+            35.20528679946896,
+            31.74839510069565
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 53,
+        "comp_size": 2,
+        "distance": 51.8,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.192977999470635,
+            31.76638810069301
+          ],
+          [
+            35.19243129947067,
+            31.766395700692986
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 15,
+        "comp_size": 7,
+        "distance": 57.7,
+        "has_road": true
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.230527199466245,
+            31.722337100699907
+          ],
+          [
+            35.2310501994662,
+            31.722070500699957
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 29,
+        "comp_size": 3,
+        "distance": 61.2,
+        "has_road": true
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.21970809946871,
+            31.751845600696157
+          ],
+          [
+            35.22030939946869,
+            31.75164380069623
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 13,
+        "comp_size": 7,
+        "distance": 68.2,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.17813699946962,
+            31.745585800694275
+          ],
+          [
+            35.17793709946968,
+            31.746176500694233
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 54,
+        "comp_size": 2,
+        "distance": 71.8,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.18801999946802,
+            31.727766600696754
+          ],
+          [
+            35.187457899468,
+            31.727332100696746
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 14,
+        "comp_size": 7,
+        "distance": 75.7,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.19998429947009,
+            31.76175820069392
+          ],
+          [
+            35.20078329947005,
+            31.761752100693954
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 40,
+        "comp_size": 2,
+        "distance": 76.7,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.16943359947079,
+            31.75791800069246
+          ],
+          [
+            35.169864599470834,
+            31.75850310069243
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 31,
+        "comp_size": 3,
+        "distance": 79.8,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.22634129947034,
+            31.777299200693907
+          ],
+          [
+            35.225952299470315,
+            31.77666090069394
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 38,
+        "comp_size": 2,
+        "distance": 82.5,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.22056009947156,
+            31.791711800692024
+          ],
+          [
+            35.220742599471514,
+            31.790984000692145
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 22,
+        "comp_size": 5,
+        "distance": 87.3,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.22634129947034,
+            31.777299200693907
+          ],
+          [
+            35.2258853994703,
+            31.77661490069395
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 59,
+        "comp_size": 2,
+        "distance": 90.1,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.2306719994723,
+            31.80654110069108
+          ],
+          [
+            35.23094399947235,
+            31.807319600691034
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 24,
+        "comp_size": 4,
+        "distance": 105.5,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.23361329946842,
+            31.75383710069681
+          ],
+          [
+            35.23418979946834,
+            31.75302310069691
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 32,
+        "comp_size": 3,
+        "distance": 106.2,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.20651939946928,
+            31.753663800695154
+          ],
+          [
+            35.2064014994692,
+            31.752711100695265
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 34,
+        "comp_size": 3,
+        "distance": 106.3,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.219010499468624,
+            31.74994870069631
+          ],
+          [
+            35.22006709946855,
+            31.749625300696422
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 44,
+        "comp_size": 2,
+        "distance": 112.7,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.2132380994726,
+            31.802651700690443
+          ],
+          [
+            35.21317409947267,
+            31.80366640069035
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 8,
+        "comp_size": 14,
+        "distance": 116.1,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.22056009947156,
+            31.791711800692024
+          ],
+          [
+            35.21958069947155,
+            31.79108280069203
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 4,
+        "comp_size": 29,
+        "distance": 131.6,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.17532129947267,
+            31.78653400068981
+          ],
+          [
+            35.17393539947272,
+            31.786451500689765
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 21,
+        "comp_size": 6,
+        "distance": 136.2,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.222165099468,
+            31.74314440069721
+          ],
+          [
+            35.22316929946803,
+            31.744023600697194
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 45,
+        "comp_size": 2,
+        "distance": 140.2,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.194872699471084,
+            31.773561500692388
+          ],
+          [
+            35.193789999471065,
+            31.772699500692408
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 49,
+        "comp_size": 2,
+        "distance": 154.7,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.196176199468525,
+            31.738586200696123
+          ],
+          [
+            35.19780279946849,
+            31.738702100696212
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 42,
+        "comp_size": 2,
+        "distance": 172.0,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.22056009947156,
+            31.791711800692024
+          ],
+          [
+            35.22014029947148,
+            31.79020310069217
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 26,
+        "comp_size": 4,
+        "distance": 176.4,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.17876239946884,
+            31.735021200695428
+          ],
+          [
+            35.17704969946886,
+            31.734398200695388
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 18,
+        "comp_size": 6,
+        "distance": 180.4,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.23626889947357,
+            31.826466600689354
+          ],
+          [
+            35.23812519947354,
+            31.82683340068945
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 41,
+        "comp_size": 2,
+        "distance": 255.3,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.22056009947156,
+            31.791711800692024
+          ],
+          [
+            35.2204084994714,
+            31.78941280069228
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 30,
+        "comp_size": 3,
+        "distance": 280.0,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.22056009947156,
+            31.791711800692024
+          ],
+          [
+            35.21941881099899,
+            31.789381968619654
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 28,
+        "comp_size": 3,
+        "distance": 310.0,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.18895449947359,
+            31.805566500688656
+          ],
+          [
+            35.18631599947356,
+            31.803912000688673
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 37,
+        "comp_size": 2,
+        "distance": 386.0,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.17667199947367,
+            31.800939500688393
+          ],
+          [
+            35.17961949947375,
+            31.80334340068832
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 56,
+        "comp_size": 2,
+        "distance": 424.1,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.22320469946649,
+            31.72232510069946
+          ],
+          [
+            35.21993989946677,
+            31.724940600699007
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 6,
+        "comp_size": 21,
+        "distance": 504.1,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.23356019947324,
+            31.820914600689772
+          ],
+          [
+            35.228254299473406,
+            31.82054130068948
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 35,
+        "comp_size": 3,
+        "distance": 551.7,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.213413499473425,
+            31.81424310068925
+          ],
+          [
+            35.20792719947373,
+            31.815919700688728
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 46,
+        "comp_size": 2,
+        "distance": 680.8,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.16444409947111,
+            31.75995750069195
+          ],
+          [
+            35.1609505994716,
+            31.765322400691176
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 33,
+        "comp_size": 3,
+        "distance": 775.1,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.23626889947357,
+            31.826466600689354
+          ],
+          [
+            35.228720699474,
+            31.829173500688608
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 16,
+        "comp_size": 6,
+        "distance": 798.8,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.23626889947357,
+            31.826466600689354
+          ],
+          [
+            35.22855169947402,
+            31.82937850068858
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 5,
+        "comp_size": 24,
+        "distance": 890.9,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.23626889947357,
+            31.826466600689354
+          ],
+          [
+            35.22918749947418,
+            31.83175780068837
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "gap",
+        "component": 11,
+        "comp_size": 9,
+        "distance": 992.9,
+        "has_road": false
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [
+            35.17532129947267,
+            31.78653400068981
+          ],
+          [
+            35.16689869947332,
+            31.79186510068875
+          ]
+        ]
+      }
+    }
+  ]
+}
