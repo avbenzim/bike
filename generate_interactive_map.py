@@ -1120,8 +1120,8 @@ button:hover{{background:#2980b9}}
       <strong>Legend - Network Layers</strong>
       <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrCompleted" checked onchange="toggleLayer('completed')"><div class="legend-line" style="background:#1B5E20"></div>Existing lanes</label></div>
       <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrConstruction" checked onchange="toggleLayer('construction')"><div class="legend-line" style="background:#81C784"></div>Under construction</label></div>
-      <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrPlan" onchange="toggleLayer('plan')"><div class="legend-line" style="background:#2196F3"></div>Planned (city)</label></div>
-      <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrCheck" onchange="toggleLayer('check')"><div class="legend-line" style="background:#00BCD4"></div>Checked (city)</label></div>
+      <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrPlan" onchange="toggleLayer('plan')"><div class="legend-line" style="background:#2196F3"></div>In planning</label></div>
+      <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrCheck" onchange="toggleLayer('check')"><div class="legend-line" style="background:#00BCD4"></div>In checking</label></div>
       <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrWishing" onchange="toggleLayer('wishing')"><div class="legend-line" style="background:#FF9800"></div>Wishing list</label></div>
       <hr style="margin:6px 0;border:none;border-top:1px solid #ccc">
       <div class="legend-item"><div class="legend-line" style="background:#9b59b6;height:6px"></div>Selected wishing lane</div>
@@ -1605,12 +1605,12 @@ if(CONSTRUCTION.features.length){{
 
 // Plan (blue) - off by default
 if(PLAN.features.length){{
-  planLyr=makeLaneLayer(PLAN,"#2196F3","Planned (city)");
+  planLyr=makeLaneLayer(PLAN,"#2196F3","In planning");
 }}
 
 // Check (cyan) - off by default
 if(CHECK.features.length){{
-  checkLyr=makeLaneLayer(CHECK,"#00BCD4","Checked (city)");
+  checkLyr=makeLaneLayer(CHECK,"#00BCD4","In checking");
 }}
 
 // Wishing list (orange, purple when selected)
