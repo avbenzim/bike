@@ -1,0 +1,30 @@
+{
+  "baseline_N": 18431209.965155106,
+  "k": 100,
+  "theta": -1.0,
+  "year": 2025,
+  "n_areas": 461,
+  "n_lanes": 24,
+  "top5": [
+    {
+      "name": "Yirmiyahu-Bar Ilan-Eshkol",
+      "improvement_pct": 53.390586750500134
+    },
+    {
+      "name": "Shamgar-Ohel Yehoshua",
+      "improvement_pct": 16.970320520631187
+    },
+    {
+      "name": "Bar Lev",
+      "improvement_pct": 16.897190076485852
+    },
+    {
+      "name": "Derech Hebron",
+      "improvement_pct": 11.886425448009213
+    },
+    {
+      "name": "Bezalel-Rabin",
+      "improvement_pct": 9.664151019575876
+    }
+  ]
+}

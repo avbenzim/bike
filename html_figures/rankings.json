@@ -1,0 +1,194 @@
+[
+  {
+    "name": "Yirmiyahu-Bar Ilan-Eshkol",
+    "name_raw": "\u05d9\u05e8\u05de\u05d9\u05d4\u05d5-\u05d1\u05e8 \u05d0\u05d9\u05dc\u05df-\u05dc\u05d5\u05d9 \u05d0\u05e9\u05db\u05d5\u05dc",
+    "length": 3600.8639088566897,
+    "improvement_pct": 53.390586750500134,
+    "rank": 1,
+    "cumulative_pct": 53.390586750500134
+  },
+  {
+    "name": "Shamgar-Ohel Yehoshua",
+    "name_raw": "\u05e9\u05de\u05d2\u05e8-\u05d0\u05d5\u05d4\u05dc \u05d9\u05d4\u05d5\u05e9\u05d5\u05e2-\u05e9\u05e4\u05e2 \u05d7\u05d9\u05d9\u05dd",
+    "length": 1875.416751407373,
+    "improvement_pct": 16.970320520631187,
+    "rank": 2,
+    "cumulative_pct": 70.36090727113132
+  },
+  {
+    "name": "Bar Lev",
+    "name_raw": "\u05d1\u05e8 \u05dc\u05d1",
+    "length": 3949.6259335428567,
+    "improvement_pct": 16.897190076485852,
+    "rank": 3,
+    "cumulative_pct": 87.25809734761718
+  },
+  {
+    "name": "Derech Hebron",
+    "name_raw": "\u05d3\u05e8\u05da \u05d7\u05d1\u05e8\u05d5\u05df",
+    "length": 5150.860743594557,
+    "improvement_pct": 11.886425448009213,
+    "rank": 4,
+    "cumulative_pct": 99.14452279562639
+  },
+  {
+    "name": "Bezalel-Rabin",
+    "name_raw": "\u05d1\u05e6\u05dc\u05d0\u05dc-\u05e8\u05d1\u05d9\u05df",
+    "length": 1938.2992594046568,
+    "improvement_pct": 9.664151019575876,
+    "rank": 5,
+    "cumulative_pct": 108.80867381520227
+  },
+  {
+    "name": "Golda-Shmuel HaNavi",
+    "name_raw": "\u05d2\u05d5\u05dc\u05d3\u05d4-\u05e9\u05de\u05d5\u05d0\u05dc \u05d4\u05e0\u05d1\u05d9\u05d0",
+    "length": 2918.59516564946,
+    "improvement_pct": 5.750460748414535,
+    "rank": 6,
+    "cumulative_pct": 114.55913456361681
+  },
+  {
+    "name": "Ben Zakai-Yehuda HaNasi",
+    "name_raw": "\u05d1\u05df \u05d6\u05db\u05d0\u05d9-\u05d9\u05d4\u05d5\u05d3\u05d4 \u05d4\u05e0\u05e9\u05d9\u05d0",
+    "length": 1786.7479817953206,
+    "improvement_pct": 5.005965690163411,
+    "rank": 7,
+    "cumulative_pct": 119.56510025378022
+  },
+  {
+    "name": "Herzl",
+    "name_raw": "\u05d4\u05e8\u05e6\u05dc\u200e",
+    "length": 2891.8132015883625,
+    "improvement_pct": 3.1149211060434574,
+    "rank": 8,
+    "cumulative_pct": 122.68002135982367
+  },
+  {
+    "name": "Bezek-Beit",
+    "name_raw": "\u05d1\u05d6\u05e7-\u05d1\u05d9\u05d9\u05d8",
+    "length": 2339.5748365739314,
+    "improvement_pct": 2.0395134838822306,
+    "rank": 9,
+    "cumulative_pct": 124.7195348437059
+  },
+  {
+    "name": "Elazar HaModa'i-Katamon",
+    "name_raw": "\u05d0\u05dc\u05e2\u05d6\u05e8 \u05d4\u05de\u05d5\u05d3\u05e2\u05d9-\u05db\u05d5\u05d1\u05e9\u05d9 \u05e7\u05d8\u05de\u05d5\u05df",
+    "length": 1010.8941487273163,
+    "improvement_pct": 1.968551810214739,
+    "rank": 10,
+    "cumulative_pct": 126.68808665392064
+  },
+  {
+    "name": "Pierre Koenig",
+    "name_raw": "\u05e4\u05d9\u05d9\u05e8 \u05e7\u05e0\u05d9\u05d2",
+    "length": 1421.533047156255,
+    "improvement_pct": 1.7765796675967362,
+    "rank": 11,
+    "cumulative_pct": 128.46466632151737
+  },
+  {
+    "name": "HaPalmach",
+    "name_raw": "\u05d4\u05e4\u05dc\u05de\u05f4\u05d7",
+    "length": 1082.0935046061486,
+    "improvement_pct": 1.6487469713695642,
+    "rank": 12,
+    "cumulative_pct": 130.11341329288695
+  },
+  {
+    "name": "Rachel Imenu-Hizkiyahu",
+    "name_raw": "\u05e8\u05d7\u05dc \u05d0\u05de\u05e0\u05d5-\u05d7\u05d6\u05e7\u05d9\u05d4\u05d5 \u05d4\u05de\u05dc\u05da-\u05d3\u05d5\u05e1\u05d8\u05d0\u05d9",
+    "length": 1271.6857641302877,
+    "improvement_pct": 1.0981246122160548,
+    "rank": 13,
+    "cumulative_pct": 131.211537905103
+  },
+  {
+    "name": "George Adam Smith-Lehi",
+    "name_raw": "\u05d2\u05f3\u05d5\u05e8\u05d2\u05f3 \u05d0\u05d3\u05dd \u05e1\u05de\u05d9\u05ea\u05f3 - \u05dc\u05d7\u05f4\u05d9\u200e\u200e",
+    "length": 586.5818668460824,
+    "improvement_pct": 1.086895486902915,
+    "rank": 14,
+    "cumulative_pct": 132.2984333920059
+  },
+  {
+    "name": "Keren HaYesod-King George",
+    "name_raw": "\u05e7\u05e8\u05df \u05d4\u05d9\u05e1\u05d5\u05d3-\u05e7\u05d9\u05e0\u05d2 \u05d2\u05f3\u05d5\u05e8\u05d2\u05f3",
+    "length": 1647.489723366693,
+    "improvement_pct": 1.0852692755773405,
+    "rank": 15,
+    "cumulative_pct": 133.38370266758324
+  },
+  {
+    "name": "Agron-Ramban",
+    "name_raw": "\u05d0\u05d2\u05e8\u05d5\u05df-\u05e8\u05de\u05d1\u05f4\u05df\u200e",
+    "length": 801.1863007145956,
+    "improvement_pct": 0.7344560367132448,
+    "rank": 16,
+    "cumulative_pct": 134.1181587042965
+  },
+  {
+    "name": "Strauss-Yehezkel",
+    "name_raw": "\u05e9\u05d8\u05e8\u05d0\u05d5\u05e1-\u05d9\u05d7\u05d6\u05e7\u05d0\u05dc",
+    "length": 1283.1965908155998,
+    "improvement_pct": 0.5577244524801015,
+    "rank": 17,
+    "cumulative_pct": 134.6758831567766
+  },
+  {
+    "name": "HaAri-Metudela",
+    "name_raw": "\u05d4\u05d0\u05e8\u05f4\u05d9-\u05de\u05d8\u05d5\u05d3\u05dc\u05d4",
+    "length": 881.0329194373309,
+    "improvement_pct": 0.4673385823330864,
+    "rank": 18,
+    "cumulative_pct": 135.1432217391097
+  },
+  {
+    "name": "Tzvi Yehuda",
+    "name_raw": "\u05e6\u05d1\u05d9 \u05d9\u05d4\u05d5\u05d3\u05d4",
+    "length": 584.4104939254353,
+    "improvement_pct": 0.45692637832691446,
+    "rank": 19,
+    "cumulative_pct": 135.60014811743662
+  },
+  {
+    "name": "Jabotinsky",
+    "name_raw": "\u05d6\u05f3\u05d1\u05d5\u05d8\u05d9\u05e0\u05e1\u05e7\u05d9",
+    "length": 1042.2428004356632,
+    "improvement_pct": 0.3636652551246532,
+    "rank": 20,
+    "cumulative_pct": 135.96381337256128
+  },
+  {
+    "name": "Baron Hirsch-Eliezer HaLevi",
+    "name_raw": "\u05d4\u05d1\u05e8\u05d5\u05df \u05d4\u05d9\u05e8\u05e9-\u05d0\u05dc\u05d9\u05e2\u05d6\u05e8 \u05d4\u05dc\u05d5\u05d9",
+    "length": 591.821953045211,
+    "improvement_pct": 0.27245509327204304,
+    "rank": 21,
+    "cumulative_pct": 136.23626846583332
+  },
+  {
+    "name": "Kolitz",
+    "name_raw": "\u05e7\u05d5\u05dc\u05d9\u05e5",
+    "length": 842.0234376209929,
+    "improvement_pct": 0.19546159282257825,
+    "rank": 22,
+    "cumulative_pct": 136.4317300586559
+  },
+  {
+    "name": "Golomb",
+    "name_raw": "\u05d2\u05d5\u05dc\u05d5\u05de\u05d1",
+    "length": 1382.6222251896952,
+    "improvement_pct": 0.11470520716810413,
+    "rank": 23,
+    "cumulative_pct": 136.546435265824
+  },
+  {
+    "name": "Begin (Givat Ram)",
+    "name_raw": "\u05d1\u05d2\u05d9\u05df (\u05d2\u05d1\u05e2\u05ea \u05e8\u05dd)",
+    "length": 1864.8635204922498,
+    "improvement_pct": 0.0,
+    "rank": 24,
+    "cumulative_pct": 136.546435265824
+  }
+]
