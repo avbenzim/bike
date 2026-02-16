@@ -5,7 +5,6 @@ Check if roads exist nearby or if the road network is missing.
 """
 import sys
 import os
-sys.path.insert(0, os.path.dirname(__file__))
 
 import geopandas as gpd
 import numpy as np
@@ -20,6 +19,7 @@ import warnings
 warnings.filterwarnings('ignore')
 
 script_dir = Path(__file__).parent
+data_dir = script_dir.parent  # Input files are in parent directory
 fiona.drvsupport.supported_drivers['KML'] = 'rw'
 TARGET_CRS = 2039
 WGS84 = 4326
@@ -30,10 +30,10 @@ def diagnose():
     print("=" * 70)
 
     # Load raw data
-    areas = gpd.read_file(script_dir / "jer_areas.shp")
+    areas = gpd.read_file(data_dir / "jer_areas.shp")
     areas = areas[areas['in_jeru'] == 1].copy()
-    roads = gpd.read_file(script_dir / "jerusalem_roads.kml", driver='KML')
-    completed = gpd.read_file(script_dir / "bike_lanes_completed.kml", driver='KML')
+    roads = gpd.read_file(data_dir / "jerusalem_roads.kml", driver='KML')
+    completed = gpd.read_file(data_dir / "bike_lanes_completed.kml", driver='KML')
 
     roads_proj = roads.to_crs(TARGET_CRS)
     completed_proj = completed.to_crs(TARGET_CRS)

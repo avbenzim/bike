@@ -21,6 +21,7 @@ from playwright.sync_api import sync_playwright
 warnings.filterwarnings('ignore')
 
 script_dir = Path(__file__).parent
+data_dir = script_dir.parent  # Input files are in parent directory
 fiona.drvsupport.supported_drivers['KML'] = 'rw'
 TARGET_CRS = 2039
 WGS84 = 4326
@@ -102,17 +103,17 @@ def spectral_color(t):
 def load_data():
     """Load all data files."""
     print("Loading data...")
-    areas = gpd.read_file(script_dir / "jer_areas.shp")
+    areas = gpd.read_file(data_dir / "jer_areas.shp")
     areas = areas[areas['in_jeru'] == 1].copy()
     for year in [2020, 2025, 2030, 2035, 2040]:
         areas[f'pop_{year}'] = areas[f'pop_{year}'].fillna(0)
         areas[f'emp_{year}'] = areas[f'emp_{year}'].fillna(0)
     areas['pop'] = areas[f'pop_{DEFAULT_YEAR}'].fillna(0)
     areas['emp'] = areas[f'emp_{DEFAULT_YEAR}'].fillna(0)
-    roads = gpd.read_file(script_dir / "jerusalem_roads.kml", driver='KML')
-    completed = gpd.read_file(script_dir / "bike_lanes_completed.kml", driver='KML')
-    construction = gpd.read_file(script_dir / "bike_lanes_construction.kml", driver='KML')
-    wishing = gpd.read_file(script_dir / "bike_lanes_wishing_list.kml", driver='KML')
+    roads = gpd.read_file(data_dir / "jerusalem_roads.kml", driver='KML')
+    completed = gpd.read_file(data_dir / "bike_lanes_completed.kml", driver='KML')
+    construction = gpd.read_file(data_dir / "bike_lanes_construction.kml", driver='KML')
+    wishing = gpd.read_file(data_dir / "bike_lanes_wishing_list.kml", driver='KML')
     return areas, roads, completed, construction, wishing
 
 

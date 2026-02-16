@@ -11,7 +11,6 @@ This ensures every bike lane is reachable, even if it's in a park or far from ro
 """
 import sys
 import os
-sys.path.insert(0, os.path.dirname(__file__))
 
 import geopandas as gpd
 import numpy as np
@@ -28,6 +27,8 @@ import warnings
 warnings.filterwarnings('ignore')
 
 script_dir = Path(__file__).parent
+data_dir = script_dir.parent  # Input files and main script are in parent directory
+sys.path.insert(0, str(data_dir))  # Add parent to path for imports
 fiona.drvsupport.supported_drivers['KML'] = 'rw'
 TARGET_CRS = 2039
 WGS84 = 4326

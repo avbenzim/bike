@@ -4,7 +4,6 @@ Detailed analysis of bike network gaps and missing connections.
 """
 import sys
 import os
-sys.path.insert(0, os.path.dirname(__file__))
 
 import geopandas as gpd
 import numpy as np
@@ -20,6 +19,8 @@ import json
 warnings.filterwarnings('ignore')
 
 script_dir = Path(__file__).parent
+data_dir = script_dir.parent  # Input files and main script are in parent directory
+sys.path.insert(0, str(data_dir))  # Add parent to path for imports
 fiona.drvsupport.supported_drivers['KML'] = 'rw'
 TARGET_CRS = 2039
 WGS84 = 4326
@@ -215,7 +216,7 @@ def analyze_gaps():
             }
         })
 
-    with open(script_dir / "bike_gaps_detailed.geojson", 'w') as f:
+    with open(data_dir / "bike_gaps_detailed.geojson", 'w') as f:
         json.dump({"type": "FeatureCollection", "features": gap_features}, f, indent=2)
 
     print(f"   Saved {len(gap_features)} gaps to bike_gaps_detailed.geojson")

@@ -16,6 +16,7 @@ import json
 warnings.filterwarnings('ignore')
 
 script_dir = Path(__file__).parent
+data_dir = script_dir.parent  # Input files are in parent directory
 fiona.drvsupport.supported_drivers['KML'] = 'rw'
 TARGET_CRS = 2039
 WGS84 = 4326
@@ -24,9 +25,9 @@ VIRTUAL_EDGE_THRESHOLD = 50
 
 def load_all_data():
     """Load all data files."""
-    areas = gpd.read_file(script_dir / "jer_areas.shp")
+    areas = gpd.read_file(data_dir / "jer_areas.shp")
     areas = areas[areas['in_jeru'] == 1].copy()
-    roads = gpd.read_file(script_dir / "jerusalem_roads.kml", driver='KML')
+    roads = gpd.read_file(data_dir / "jerusalem_roads.kml", driver='KML')
 
     layers = {}
     layer_files = {
@@ -39,7 +40,7 @@ def load_all_data():
 
     for name, filename in layer_files.items():
         try:
-            gdf = gpd.read_file(script_dir / filename, driver='KML', on_invalid='ignore')
+            gdf = gpd.read_file(data_dir / filename, driver='KML', on_invalid='ignore')
             gdf = gdf[gdf.geometry.notnull()].copy()
             layers[name] = gdf
         except:
@@ -405,7 +406,7 @@ def find_bike_network_gaps():
         })
 
     geojson = {"type": "FeatureCollection", "features": features}
-    with open(script_dir / "bike_network_gaps.geojson", 'w') as f:
+    with open(data_dir / "bike_network_gaps.geojson", 'w') as f:
         json.dump(geojson, f, indent=2)
     print(f"   Saved {len(features)} gap lines to bike_network_gaps.geojson")
 
