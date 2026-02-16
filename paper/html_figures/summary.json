@@ -1,6 +1,6 @@
 {
-  "baseline_N": 18431209.965155106,
-  "k": 100,
+  "baseline_N": 276755054.83217883,
+  "k": 5,
   "theta": -1.0,
   "year": 2025,
   "n_areas": 461,
@@ -8,23 +8,23 @@
   "top5": [
     {
       "name": "Yirmiyahu-Bar Ilan-Eshkol",
-      "improvement_pct": 53.390586750500134
-    },
-    {
-      "name": "Shamgar-Ohel Yehoshua",
-      "improvement_pct": 16.970320520631187
+      "improvement_pct": 28.27696320227106
     },
     {
       "name": "Bar Lev",
-      "improvement_pct": 16.897190076485852
+      "improvement_pct": 10.918631602783217
+    },
+    {
+      "name": "Shamgar-Ohel Yehoshua",
+      "improvement_pct": 8.191570732234391
     },
     {
       "name": "Derech Hebron",
-      "improvement_pct": 11.886425448009213
+      "improvement_pct": 3.3769415525839377
     },
     {
       "name": "Bezalel-Rabin",
-      "improvement_pct": 9.664151019575876
+      "improvement_pct": 2.984496522453326
     }
   ]
 }

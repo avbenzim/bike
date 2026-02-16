@@ -485,13 +485,16 @@ def capture_html_to_pdf(html_path, pdf_path, width=1600, height=700):
 
 def capture_html_to_png(html_path, png_path, width=1600, height=700):
     """Capture HTML as PNG using Playwright."""
-    with sync_playwright() as p:
-        browser = p.chromium.launch()
-        page = browser.new_page(viewport={'width': width, 'height': height})
-        page.goto(f'file://{html_path.absolute()}')
-        page.wait_for_timeout(3000)  # Wait for map tiles to load
-        page.screenshot(path=str(png_path), full_page=False)
-        browser.close()
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch()
+            page = browser.new_page(viewport={'width': width, 'height': height})
+            page.goto(f'file://{html_path.absolute()}')
+            page.wait_for_timeout(3000)  # Wait for map tiles to load
+            page.screenshot(path=str(png_path), full_page=False)
+            browser.close()
+    except Exception as e:
+        print(f"  Warning: Could not generate PNG ({e}). HTML file was generated successfully.")
 
 
 def main():
@@ -552,6 +555,25 @@ def main():
     print("\n  Top 5 lanes:")
     for r in rankings_default[:5]:
         print(f"    {r['rank']}. {r['name']}: +{r['improvement_pct']:.4f}%")
+
+    # Save rankings to JSON
+    with open(HTML_DIR / 'rankings.json', 'w') as f:
+        json.dump(rankings_default, f, indent=2)
+    print(f"  Saved rankings.json ({len(rankings_default)} lanes)")
+
+    # Save summary to JSON
+    summary = {
+        'baseline_N': baseline_N,
+        'k': DEFAULT_K,
+        'theta': DEFAULT_THETA,
+        'year': DEFAULT_YEAR,
+        'n_areas': len(areas),
+        'n_lanes': len(wishing),
+        'top5': [{'name': r['name'], 'improvement_pct': r['improvement_pct']} for r in rankings_default[:5]]
+    }
+    with open(HTML_DIR / 'summary.json', 'w') as f:
+        json.dump(summary, f, indent=2)
+    print(f"  Saved summary.json")
 
     # Compute individual lane impacts
     wishing_proj = wishing.to_crs(TARGET_CRS)
