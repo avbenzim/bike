@@ -115,7 +115,7 @@ def build_network(roads_proj, bike_lanes_list, areas_proj=None, tolerance=NODE_T
     road_tree_spatial = STRtree(road_geoms) if road_geoms else None
 
     # Mark road edges that have bike lanes running along them
-    BUFFER_DIST = 15  # meters - bike lane must be within 15m of road
+    BUFFER_DIST = 25  # meters - bike lane must be within 25m of road (increased from 15m)
 
     def mark_bike_lane_roads(line_geom):
         """Find and mark all road edges that this bike lane runs along."""
@@ -136,14 +136,22 @@ def build_network(roads_proj, bike_lanes_list, areas_proj=None, tolerance=NODE_T
                 # Calculate overlap ratio
                 overlap_ratio = intersection.length / road_geom.length if road_geom.length > 0 else 0
 
+                # Also check the reverse: does the bike lane pass through the road's buffer?
+                # This helps catch parallel roads that run alongside bike lanes
+                road_buffered = road_geom.buffer(BUFFER_DIST)
+                bike_in_road_buffer = line_geom.intersection(road_buffered)
+                bike_overlap = bike_in_road_buffer.length / line_geom.length if line_geom.length > 0 else 0
+
                 # Mark as bike lane if:
                 # 1. At least 50% of road segment is covered by bike lane, OR
                 # 2. Road segment is short (<50m) and at least 30% is covered, OR
-                # 3. The bike lane covers a significant absolute length (>20m) of the road
+                # 3. The bike lane covers a significant absolute length (>20m) of the road, OR
+                # 4. The road and bike lane are parallel (both have significant mutual coverage)
                 should_mark = (
                     overlap_ratio > 0.5 or
                     (road_geom.length < 50 and overlap_ratio > 0.3) or
-                    intersection.length > 20
+                    intersection.length > 20 or
+                    (overlap_ratio > 0.3 and bike_overlap > 0.1)  # Parallel road detection
                 )
 
                 if should_mark:
@@ -649,7 +657,7 @@ def main():
                 road_edges_list.append(edge_key)
 
     road_tree_spatial = STRtree(road_geoms_list) if road_geoms_list else None
-    BUFFER_DIST = 15  # meters
+    BUFFER_DIST = 25  # meters (increased from 15m to better catch parallel roads)
 
     def get_linestrings(geom):
         """Extract LineStrings from any geometry type."""
@@ -658,6 +666,30 @@ def main():
         elif geom.geom_type == 'MultiLineString':
             return list(geom.geoms)
         return []
+
+    def check_should_mark(line, road_geom, buffered):
+        """Check if a road should be marked as having a bike lane."""
+        intersection = road_geom.intersection(buffered)
+        if intersection.is_empty:
+            return False
+        overlap_ratio = intersection.length / road_geom.length if road_geom.length > 0 else 0
+
+        # Also check the reverse: does the bike lane pass through the road's buffer?
+        road_buffered = road_geom.buffer(BUFFER_DIST)
+        bike_in_road_buffer = line.intersection(road_buffered)
+        bike_overlap = bike_in_road_buffer.length / line.length if line.length > 0 else 0
+
+        # Mark as bike lane if:
+        # 1. At least 50% of road segment is covered by bike lane, OR
+        # 2. Road segment is short (<50m) and at least 30% is covered, OR
+        # 3. The bike lane covers a significant absolute length (>20m) of the road, OR
+        # 4. The road and bike lane are parallel (both have significant mutual coverage)
+        return (
+            overlap_ratio > 0.5 or
+            (road_geom.length < 50 and overlap_ratio > 0.3) or
+            intersection.length > 20 or
+            (overlap_ratio > 0.3 and bike_overlap > 0.1)  # Parallel road detection
+        )
 
     for lid in range(len(wishing_proj)):
         geom = wishing_proj.iloc[lid].geometry
@@ -684,17 +716,7 @@ def main():
             for idx in candidate_indices:
                 road_geom = road_geoms_list[idx]
                 try:
-                    intersection = road_geom.intersection(buffered)
-                    if intersection.is_empty:
-                        continue
-                    overlap_ratio = intersection.length / road_geom.length if road_geom.length > 0 else 0
-                    # Same criteria as mark_bike_lane_roads
-                    should_mark = (
-                        overlap_ratio > 0.5 or
-                        (road_geom.length < 50 and overlap_ratio > 0.3) or
-                        intersection.length > 20
-                    )
-                    if should_mark:
+                    if check_should_mark(line, road_geom, buffered):
                         covered_edges.add(road_edges_list[idx])
                 except:
                     pass
@@ -720,16 +742,7 @@ def main():
                 for idx in candidate_indices:
                     road_geom = road_geoms_list[idx]
                     try:
-                        intersection = road_geom.intersection(buffered)
-                        if intersection.is_empty:
-                            continue
-                        overlap_ratio = intersection.length / road_geom.length if road_geom.length > 0 else 0
-                        should_mark = (
-                            overlap_ratio > 0.5 or
-                            (road_geom.length < 50 and overlap_ratio > 0.3) or
-                            intersection.length > 20
-                        )
-                        if should_mark:
+                        if check_should_mark(line, road_geom, buffered):
                             covered.add(road_edges_list[idx])
                     except:
                         pass
