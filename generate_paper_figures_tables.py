@@ -233,12 +233,12 @@ FIGURES_DIR = script_dir / 'figures'
 TABLES_DIR = script_dir / 'tables'
 
 # Default parameters
-DEFAULT_K = 100
+DEFAULT_K = 5
 DEFAULT_THETA = -1.0
 DEFAULT_YEAR = 2025
 
 # Parameter ranges for sensitivity analysis
-K_VALUES = [10, 50, 100, 500, 1000]
+K_VALUES = [2, 5, 10, 50, 100]
 THETA_VALUES = [-0.5, -1.0, -1.5, -2.0, -3.0]
 DATA_YEARS = [2020, 2025, 2030, 2035, 2040]
 
@@ -559,10 +559,10 @@ def generate_table_2_k():
 \textbf{K Value} & \textbf{Interpretation} \\
 \midrule
 $K = 2$ & Mild penalty; cyclists tolerate mixed traffic \\
-$K = 10$ & Moderate preference for bike lanes \\
-$K = 100$ & Strong preference (default) \\
-$K = 500$ & Very strong preference \\
-$K = 1000$ & Near-exclusive use of bike lanes \\
+$K = 5$ & Moderate preference (default) \\
+$K = 10$ & Strong preference for bike lanes \\
+$K = 50$ & Very strong preference \\
+$K = 100$ & Near-exclusive use of bike lanes \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -635,7 +635,7 @@ def generate_table_5_rankings(rankings):
 
     return r"""\begin{table}[H]
 \centering
-\caption{Lane Rankings -- Additive Mode ($K=100$, $\theta=-1.0$)}
+\caption{Lane Rankings -- Additive Mode ($K=5$, $\theta=-1.0$)}
 \label{tab:lane_rankings}
 \begin{tabular}{@{}clcc@{}}
 \toprule
@@ -650,7 +650,7 @@ def generate_table_5_rankings(rankings):
 
 def generate_table_6_sensitivity_k(rankings_by_k):
     """Generate Table 6: Top 5 Lane Rankings by K Value."""
-    k_values = [10, 50, 100, 500, 1000]
+    k_values = [2, 5, 10, 50, 100]
 
     rows = []
     for rank in range(1, 6):
@@ -672,7 +672,7 @@ def generate_table_6_sensitivity_k(rankings_by_k):
 \label{tab:sensitivity_k}
 \begin{tabular}{@{}clllll@{}}
 \toprule
-\textbf{Rank} & \textbf{K=10} & \textbf{K=50} & \textbf{K=100} & \textbf{K=500} & \textbf{K=1000} \\
+\textbf{Rank} & \textbf{K=2} & \textbf{K=5} & \textbf{K=10} & \textbf{K=50} & \textbf{K=100} \\
 \midrule
 """ + " \\\\\n".join(rows) + r""" \\
 \bottomrule

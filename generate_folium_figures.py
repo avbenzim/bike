@@ -35,7 +35,7 @@ TABLES_DIR = script_dir / 'tables'
 HTML_DIR = script_dir / 'html_figures'
 
 # Default parameters (matching the HTML defaults)
-DEFAULT_K = 100
+DEFAULT_K = 5
 DEFAULT_THETA = -1.0
 DEFAULT_YEAR = 2025
 
