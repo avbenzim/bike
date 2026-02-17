@@ -40,6 +40,36 @@ THETA_VALUES = [-0.25, -0.5, -0.75, -1.0, -1.25, -1.5, -2.0, -2.5, -3.0]
 DATA_YEARS = [2020, 2025, 2030, 2035, 2040]
 DEFAULT_YEAR = 2025
 
+# Road discomfort factors by OSM highway type
+DISCOMFORT_FACTORS = {
+    'residential': 1.0, 'living_street': 1.0,
+    'tertiary': 1.5, 'tertiary_link': 1.5,
+    'secondary': 2.0, 'secondary_link': 2.0,
+    'primary': 3.0, 'primary_link': 3.0,
+    'trunk': 4.0, 'trunk_link': 4.0,
+    'motorway': 5.0, 'motorway_link': 5.0,
+}
+
+# Academic institutions with student counts and coordinates (WGS84)
+INSTITUTIONS = [
+    {"name": "Hebrew University Mt Scopus", "lat": 31.7927, "lon": 35.2454, "students": 11500},
+    {"name": "Hebrew University Givat Ram", "lat": 31.7730, "lon": 35.1972, "students": 8000},
+    {"name": "Hebrew University Ein Kerem", "lat": 31.7640, "lon": 35.1500, "students": 3500},
+    {"name": "Bezalel New Campus", "lat": 31.7827, "lon": 35.2266, "students": 3500},
+    {"name": "Hadassah College", "lat": 31.7831, "lon": 35.2211, "students": 4600},
+    {"name": "Machon Lev", "lat": 31.7654, "lon": 35.1910, "students": 3500},
+    {"name": "David Yellin", "lat": 31.7821, "lon": 35.1906, "students": 3000},
+    {"name": "Azrieli Engineering", "lat": 31.7685, "lon": 35.1939, "students": 2800},
+    {"name": "Music Academy", "lat": 31.7773, "lon": 35.1948, "students": 700},
+    {"name": "Sam Spiegel", "lat": 31.7798, "lon": 35.2130, "students": 300},
+    {"name": "Musrara", "lat": 31.7827, "lon": 35.2266, "students": 200},
+    {"name": "Al-Quds University", "lat": 31.8313, "lon": 35.2250, "students": 12000},
+]
+
+TRAIN_STATIONS = [
+    {"name": "Yitzhak Navon", "lat": 31.7881, "lon": 35.2028, "passengers": 15000},
+]
+
 
 def load_data():
     areas = gpd.read_file(script_dir / "jer_areas.shp")
@@ -73,9 +103,82 @@ def load_data():
     return areas, roads, completed, construction, plan, check, wishing
 
 
-def build_network(roads_proj, bike_lanes_list, areas_proj=None, tolerance=NODE_TOLERANCE):
+def load_highway_types():
+    """Load OSM highway classification for roads and return name->discomfort mapping."""
+    csv_path = script_dir / "jerusalem_roads_major.csv"
+    if not csv_path.exists():
+        print("Warning: jerusalem_roads_major.csv not found, using default discomfort=1.0 for all roads")
+        return {}
+    import csv
+    name_to_discomfort = {}
+    with open(csv_path, 'r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            name = row.get('name:he') or row.get('name', '')
+            highway = row.get('highway', 'residential')
+            if name:
+                discomfort = DISCOMFORT_FACTORS.get(highway, 1.0)
+                # Keep the highest discomfort if a road appears multiple times
+                if name not in name_to_discomfort or discomfort > name_to_discomfort[name]:
+                    name_to_discomfort[name] = discomfort
+    return name_to_discomfort
+
+
+def assign_destination_layers(areas_proj):
+    """Assign education and transit destination values to statistical areas.
+
+    Each institution/station is assigned to the area polygon it falls in,
+    or the nearest area centroid if outside all polygons.
+    """
+    from shapely.geometry import Point
+
+    transformer = Transformer.from_crs(WGS84, TARGET_CRS, always_xy=True)
+
+    areas_proj['students'] = 0.0
+    areas_proj['transit'] = 0.0
+
+    centroids = areas_proj.geometry.centroid
+
+    def find_area_for_point(lon, lat):
+        """Find which area a point falls in, or nearest centroid."""
+        x, y = transformer.transform(lon, lat)
+        pt = Point(x, y)
+        # Try point-in-polygon first
+        for idx, row in areas_proj.iterrows():
+            if row.geometry.contains(pt):
+                return idx
+        # Fallback: nearest centroid
+        min_dist = float('inf')
+        best_idx = areas_proj.index[0]
+        for idx, c in zip(areas_proj.index, centroids):
+            d = pt.distance(c)
+            if d < min_dist:
+                min_dist = d
+                best_idx = idx
+        return best_idx
+
+    for inst in INSTITUTIONS:
+        idx = find_area_for_point(inst['lon'], inst['lat'])
+        areas_proj.loc[idx, 'students'] += inst['students']
+
+    for station in TRAIN_STATIONS:
+        idx = find_area_for_point(station['lon'], station['lat'])
+        areas_proj.loc[idx, 'transit'] += station['passengers']
+
+    n_areas_with_students = (areas_proj['students'] > 0).sum()
+    n_areas_with_transit = (areas_proj['transit'] > 0).sum()
+    total_students = areas_proj['students'].sum()
+    total_transit = areas_proj['transit'].sum()
+    print(f"  Education: {total_students:.0f} students in {n_areas_with_students} areas")
+    print(f"  Transit: {total_transit:.0f} daily passengers in {n_areas_with_transit} areas")
+
+
+def build_network(roads_proj, bike_lanes_list, areas_proj=None, tolerance=NODE_TOLERANCE, road_discomfort=None):
     from shapely.strtree import STRtree
     from shapely.geometry import Point
+
+    if road_discomfort is None:
+        road_discomfort = {}
 
     G = nx.Graph()
     coord_to_node = {}
@@ -105,7 +208,9 @@ def build_network(roads_proj, bike_lanes_list, areas_proj=None, tolerance=NODE_T
             s = get_or_create_node(coords[0][0], coords[0][1])
             e = get_or_create_node(coords[-1][0], coords[-1][1])
             if s != e:
-                G.add_edge(s, e, length=geom.length, has_bike_lane=False)
+                road_name = row.get('Name', '') or ''
+                discomfort = road_discomfort.get(road_name, 1.0)
+                G.add_edge(s, e, length=geom.length, has_bike_lane=False, discomfort=discomfort)
                 edge_key = (min(s, e), max(s, e))
                 edge_to_geom[edge_key] = geom
                 road_geoms.append(geom)
@@ -492,21 +597,26 @@ def build_network(roads_proj, bike_lanes_list, areas_proj=None, tolerance=NODE_T
     return G, node_coords, node_tree, node_ids, edge_to_geom
 
 
-def compute_area_accessibility(G, node_coords, node_tree, node_ids, areas_proj, theta, k):
+def compute_area_accessibility(G, node_coords, node_tree, node_ids, areas_proj, theta, k,
+                                w_emp=1.0, w_edu=0.0, w_transit=0.0):
     """Compute origin and destination accessibility for each area.
-    origin: acc_orig[i] = sum_j E_j * tau_ij^theta  (how many jobs area i can reach)
-    dest:   acc_dest[j] = sum_i P_i * tau_ij^theta  (how many people can reach area j)
+    origin: acc_orig[i] = sum_j dest_weight_j * tau_ij^theta
+    dest:   acc_dest[j] = sum_i P_i * tau_ij^theta
+    where dest_weight_j = w_emp*E_j + w_edu*S_j + w_transit*T_j
     """
     Gw = G.copy()
     for u, v in Gw.edges():
         l = Gw[u][v]['length']
-        Gw[u][v]['weight'] = l if Gw[u][v].get('has_bike_lane') else l * k
+        discomfort = Gw[u][v].get('discomfort', 1.0)
+        Gw[u][v]['weight'] = l if Gw[u][v].get('has_bike_lane') else l * k * discomfort
 
     centroids = areas_proj.geometry.centroid
     n = len(areas_proj)
     center_nodes = [node_ids[node_tree.query([c.x, c.y])[1]] for c in centroids]
     pop = areas_proj['pop'].values
     emp = areas_proj['emp'].values
+    students = areas_proj['students'].values if 'students' in areas_proj.columns else np.zeros(n)
+    transit = areas_proj['transit'].values if 'transit' in areas_proj.columns else np.zeros(n)
     largest_cc = max(nx.connected_components(Gw), key=len)
 
     acc_orig = np.zeros(n)
@@ -522,7 +632,8 @@ def compute_area_accessibility(G, node_coords, node_tree, node_ids, areas_proj, 
             if i != j and center_nodes[j] in dists:
                 tau = max(dists[center_nodes[j]] / 1000, 0.1)
                 decay = tau ** theta
-                acc_orig[i] += emp[j] * decay
+                dest_w = w_emp * emp[j] + w_edu * students[j] + w_transit * transit[j]
+                acc_orig[i] += dest_w * decay
                 acc_dest[j] += pop[i] * decay
     return acc_orig, acc_dest
 
@@ -559,6 +670,18 @@ def main():
     areas_proj = areas.to_crs(TARGET_CRS)
     roads_proj = roads.to_crs(TARGET_CRS)
 
+    # Load road discomfort factors from OSM highway classification
+    print("Loading road discomfort factors...")
+    road_discomfort = load_highway_types()
+    print(f"  Loaded discomfort factors for {len(road_discomfort)} road names")
+
+    # Assign education and transit destinations to areas
+    print("Assigning destination layers...")
+    assign_destination_layers(areas_proj)
+    # Copy back to areas for GeoJSON export
+    areas['students'] = areas_proj['students'].values
+    areas['transit'] = areas_proj['transit'].values
+
     # Prepare area names and IDs
     areas['area_id'] = range(len(areas))
     areas_proj['area_id'] = range(len(areas_proj))
@@ -571,7 +694,7 @@ def main():
 
     # Build GeoJSON for display
     print("Building GeoJSON layers...")
-    areas_geojson = geojson_from_gdf(areas[['geometry', 'pop', 'emp', 'area_id']], ['pop', 'emp', 'area_id'])
+    areas_geojson = geojson_from_gdf(areas[['geometry', 'pop', 'emp', 'students', 'transit', 'area_id']], ['pop', 'emp', 'students', 'transit', 'area_id'])
     # attach area_id to features properly
     for i, feat in enumerate(areas_geojson['features']):
         feat['properties']['area_id'] = i
@@ -595,7 +718,7 @@ def main():
     # The JS side decides which layers are "active" for bike-lane weighting
     print("Building network...")
     all_lane_layers = [completed, construction, plan, check, wishing]
-    G_base, nc, nt, ni, edge_geoms = build_network(roads_proj, all_lane_layers, areas_proj)
+    G_base, nc, nt, ni, edge_geoms = build_network(roads_proj, all_lane_layers, areas_proj, road_discomfort=road_discomfort)
     print(f"  Network: {G_base.number_of_nodes()} nodes, {G_base.number_of_edges()} edges")
 
     # Build network data for path finding (WGS84 coords)
@@ -611,7 +734,9 @@ def main():
     edges_list = []
     for u, v, d in G_base.edges(data=True):
         # All edges start as has_bike_lane=0; JS toggles via layer edge sets
-        edges_list.append([u, v, round(d['length'], 1), 0])
+        # 5th element is discomfort factor for road type
+        discomfort = round(d.get('discomfort', 1.0), 1)
+        edges_list.append([u, v, round(d['length'], 1), 0, discomfort])
 
     # Export edge geometries for accurate path drawing
     edge_geoms_wgs = {}
@@ -908,6 +1033,10 @@ def main():
     area_pop = area_pop_by_year[DEFAULT_YEAR]
     area_emp = area_emp_by_year[DEFAULT_YEAR]
 
+    # Education and transit data (not year-dependent)
+    area_students = [round(float(v), 0) for v in areas_proj['students'].values]
+    area_transit = [round(float(v), 0) for v in areas_proj['transit'].values]
+
     # Pre-compute area center nodes (which network node is closest to each area centroid)
     centroids_proj = [[round(c.x, 1), round(c.y, 1)] for c in areas_proj.geometry.centroid]
     area_center_nodes = []
@@ -932,6 +1061,8 @@ def main():
         area_emp=area_emp,
         area_pop_by_year=area_pop_by_year,
         area_emp_by_year=area_emp_by_year,
+        area_students=area_students,
+        area_transit=area_transit,
         data_years=DATA_YEARS,
         default_year=DEFAULT_YEAR,
         area_center_nodes=area_center_nodes,
@@ -965,6 +1096,7 @@ def generate_html(*, areas_geojson, completed_geojson, construction_geojson,
                   plan_geojson, check_geojson,
                   wishing_geojson, lane_names, lane_lengths, area_names,
                   area_pop, area_emp, area_pop_by_year, area_emp_by_year,
+                  area_students, area_transit,
                   data_years, default_year, area_center_nodes,
                   nodes_wgs, edges_list, edge_geoms_wgs,
                   completed_edges, completed_virtual_edges,
@@ -1083,10 +1215,11 @@ button:hover{{background:#2980b9}}
 <div class="formula">
   <span>Accessibility model:</span>
   <span class="math">
-    N = &Sigma;<sub>i</sub> &Sigma;<sub>j</sub> P<sub>i</sub> &middot; E<sub>j</sub> &middot; &tau;<sub>ij</sub><sup class="var">&theta;</sup>
+    N = &Sigma;<sub>i</sub> &Sigma;<sub>j</sub> P<sub>i</sub> &middot; D<sub>j</sub> &middot; &tau;<sub>ij</sub><sup class="var">&theta;</sup>
     &nbsp;&nbsp;where&nbsp;
+    D<sub>j</sub> = w<sub>emp</sub>&middot;E + w<sub>edu</sub>&middot;S + w<sub>transit</sub>&middot;T,&nbsp;
     &tau;<sub>ij</sub> = shortest path with weight
-    <span class="var">K</span>&middot;d for roads,&nbsp; 1&middot;d for bike lanes
+    <span class="var">K</span>&middot;comfort&middot;d for roads,&nbsp; 1&middot;d for bike lanes
   </span>
   <button onclick="document.getElementById('methodModal').style.display='flex'" style="margin-left:20px;padding:5px 12px;background:#27ae60;color:#fff;border-radius:4px;border:none;font-size:12px;cursor:pointer">Methodology</button>
 </div>
@@ -1110,6 +1243,26 @@ button:hover{{background:#2980b9}}
     <select id="yearSel" onchange="handleYearChange()">
 {year_options}
     </select>
+  </div>
+  <div class="cg">
+    <label>Destination weights:</label>
+    <div style="display:flex;flex-direction:column;gap:2px;font-size:11px">
+      <div style="display:flex;align-items:center;gap:4px">
+        <span style="width:62px;color:#fff">Employment</span>
+        <input type="range" id="wEmpSlider" min="0" max="100" value="33" style="width:80px" oninput="updateWeights()">
+        <span id="wEmpVal" style="width:30px">33%</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px">
+        <span style="width:62px;color:#fff">Education</span>
+        <input type="range" id="wEduSlider" min="0" max="100" value="33" style="width:80px" oninput="updateWeights()">
+        <span id="wEduVal" style="width:30px">33%</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px">
+        <span style="width:62px;color:#fff">Transit</span>
+        <input type="range" id="wTransitSlider" min="0" max="100" value="33" style="width:80px" oninput="updateWeights()">
+        <span id="wTransitVal" style="width:30px">33%</span>
+      </div>
+    </div>
   </div>
   <div class="cg">
     <label>Color areas by:</label>
@@ -1278,6 +1431,8 @@ let AREA_POP={js_json(area_pop)};
 let AREA_EMP={js_json(area_emp)};
 const AREA_POP_BY_YEAR={js_json(area_pop_by_year)};
 const AREA_EMP_BY_YEAR={js_json(area_emp_by_year)};
+const AREA_STUDENTS={js_json(area_students)};
+const AREA_TRANSIT={js_json(area_transit)};
 const DATA_YEARS={js_json(data_years)};
 const DEFAULT_YEAR={default_year};
 const AREA_NODES={js_json(area_center_nodes)};
@@ -1315,11 +1470,18 @@ let currentK=10;
 let currentTheta=-1.0;
 let currentYear=DEFAULT_YEAR;
 
+// Destination layer weights (normalized to sum to 1)
+let wEmp=1/3,wEdu=1/3,wTransit=1/3;
+function destWeight(j){{return wEmp*AREA_EMP[j]+wEdu*AREA_STUDENTS[j]+wTransit*AREA_TRANSIT[j];}}
+
 // Baseline = accessibility with NO wishing lanes (computed when K/theta/year changes)
 let baselineAcc=null;
 let baselineK=null;
 let baselineTheta=null;
 let baselineYear=null;
+let baselineWEmp=null;
+let baselineWEdu=null;
+let baselineWTransit=null;
 
 // Computed = accessibility WITH selected wishing lanes
 let computedAcc=null;
@@ -1397,6 +1559,19 @@ function handleYearChange(){{
   onParamsChanged();
 }}
 
+function updateWeights(){{
+  const e=parseInt(document.getElementById('wEmpSlider').value);
+  const d=parseInt(document.getElementById('wEduSlider').value);
+  const t=parseInt(document.getElementById('wTransitSlider').value);
+  const total=e+d+t;
+  if(total===0){{wEmp=1;wEdu=0;wTransit=0;}}
+  else{{wEmp=e/total;wEdu=d/total;wTransit=t/total;}}
+  document.getElementById('wEmpVal').textContent=Math.round(wEmp*100)+'%';
+  document.getElementById('wEduVal').textContent=Math.round(wEdu*100)+'%';
+  document.getElementById('wTransitVal').textContent=Math.round(wTransit*100)+'%';
+  onParamsChanged();
+}}
+
 function onParamsChanged(){{
   // Clear computed results when params change
   computedAcc=null;
@@ -1409,6 +1584,9 @@ function onParamsChanged(){{
   baselineK=null;
   baselineTheta=null;
   baselineYear=null;
+  baselineWEmp=null;
+  baselineWEdu=null;
+  baselineWTransit=null;
   refresh();
   updateComputePanel();
 }}
@@ -1513,7 +1691,8 @@ function buildAdj(bikeEdgeSet,virtualEdges,k,includeEdgeInfo){{
     const a=String(e[0]),b=String(e[1]);
     const edgeKey=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
     const bike=bikeEdgeSet.has(edgeKey);
-    const w=bike?len:len*k;
+    const discomfort=e[4]||1.0;
+    const w=bike?len:len*k*discomfort;
     if(!adj[a])adj[a]=[];
     if(!adj[b])adj[b]=[];
     if(includeEdgeInfo){{
@@ -1565,10 +1744,12 @@ areasLyr=L.geoJSON(AREAS,{{
       const mode=getAccMode();
       let html="<b>"+name+"</b><br>"+
         "Pop: "+Math.round(AREA_POP[aid]).toLocaleString()+"<br>"+
-        "Emp: "+Math.round(AREA_EMP[aid]).toLocaleString();
+        "Emp: "+Math.round(AREA_EMP[aid]).toLocaleString()+
+        (AREA_STUDENTS[aid]>0?"<br>Students: "+Math.round(AREA_STUDENTS[aid]).toLocaleString():"")+
+        (AREA_TRANSIT[aid]>0?"<br>Transit: "+Math.round(AREA_TRANSIT[aid]).toLocaleString()+" daily":"");
       html+="<hr style='margin:4px 0'>";
       // Show baseline
-      if(baselineAcc && baselineK===currentK && baselineTheta===currentTheta && baselineYear===currentYear){{
+      if(baselineAcc && baselineK===currentK && baselineTheta===currentTheta && baselineYear===currentYear && baselineWEmp===wEmp && baselineWEdu===wEdu && baselineWTransit===wTransit){{
         const baseAcc=(mode==="dest")?baselineAcc.dest:baselineAcc.orig;
         html+="Baseline: "+baseAcc[aid].toFixed(1)+"<br>";
         // Show computed and change if available
@@ -1755,7 +1936,7 @@ function updateAreaColors(){{
   let acc=null;
   if(computedAcc && computedK===currentK && computedTheta===currentTheta && computedYear===currentYear){{
     acc=(mode==="dest")?computedAcc.dest:computedAcc.orig;
-  }}else if(baselineAcc && baselineK===currentK && baselineTheta===currentTheta && baselineYear===currentYear){{
+  }}else if(baselineAcc && baselineK===currentK && baselineTheta===currentTheta && baselineYear===currentYear && baselineWEmp===wEmp && baselineWEdu===wEdu && baselineWTransit===wTransit){{
     acc=(mode==="dest")?baselineAcc.dest:baselineAcc.orig;
   }}
 
@@ -2146,9 +2327,9 @@ function computeBaseline(){{
       if(dist[dstNode]!==undefined){{
         const tau=Math.max(dist[dstNode]/1000,0.1);
         const decay=Math.pow(tau,theta);
-        acc_orig[i]+=AREA_EMP[j]*decay;
+        acc_orig[i]+=destWeight(j)*decay;
         acc_dest[j]+=AREA_POP[i]*decay;
-        totalN+=AREA_POP[i]*AREA_EMP[j]*decay;
+        totalN+=AREA_POP[i]*destWeight(j)*decay;
       }}
     }}
   }}
@@ -2157,6 +2338,9 @@ function computeBaseline(){{
   baselineK=k;
   baselineTheta=theta;
   baselineYear=currentYear;
+  baselineWEmp=wEmp;
+  baselineWEdu=wEdu;
+  baselineWTransit=wTransit;
 }}
 
 function computeAccessibility(){{
@@ -2173,7 +2357,7 @@ function computeAccessibility(){{
   btn.textContent="Computing...";
 
   // First compute baseline if needed
-  if(!baselineAcc || baselineK!==k || baselineTheta!==theta){{
+  if(!baselineAcc || baselineK!==k || baselineTheta!==theta || baselineWEmp!==wEmp || baselineWEdu!==wEdu || baselineWTransit!==wTransit){{
     prog.innerHTML="<p>Computing baseline (active layers only)...</p>";
     computeBaseline();
   }}
@@ -2202,7 +2386,7 @@ function computeAccessibility(){{
 
         let improvementPct=0;
         let baselineN=0;
-        if(baselineAcc && baselineK===k && baselineTheta===theta && baselineYear===currentYear){{
+        if(baselineAcc && baselineK===k && baselineTheta===theta && baselineYear===currentYear && baselineWEmp===wEmp && baselineWEdu===wEdu && baselineWTransit===wTransit){{
           baselineN=baselineAcc.totalN;
           if(baselineN>0){{
             improvementPct=100*(totalN-baselineN)/baselineN;
@@ -2252,9 +2436,9 @@ function computeAccessibility(){{
         if(dist[dstNode]!==undefined){{
           const tau=Math.max(dist[dstNode]/1000,0.1);
           const decay=Math.pow(tau,theta);
-          acc_orig[i]+=AREA_EMP[j]*decay;
+          acc_orig[i]+=destWeight(j)*decay;
           acc_dest[j]+=AREA_POP[i]*decay;
-          totalN+=AREA_POP[i]*AREA_EMP[j]*decay;
+          totalN+=AREA_POP[i]*destWeight(j)*decay;
         }}
       }}
 
@@ -2461,7 +2645,7 @@ function computeNetworkValue(selectedWishingLanes,k,theta){{
       if(dist[dstNode]!==undefined){{
         const tau=Math.max(dist[dstNode]/1000,0.1);
         const decay=Math.pow(tau,theta);
-        totalN+=AREA_POP[i]*AREA_EMP[j]*decay;
+        totalN+=AREA_POP[i]*destWeight(j)*decay;
       }}
     }}
   }}
@@ -3182,7 +3366,8 @@ dijkstra=function(origIdx,destIdx,k){{
     const edgeKey=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
     const isUserEdge=userEdgeSet.has(edgeKey);
     const bike=bikeEdgeSet.has(edgeKey);
-    const w=bike?len:len*k;
+    const discomfort=e[4]||1.0;
+    const w=bike?len:len*k*discomfort;
     if(!adj[a])adj[a]=[];
     if(!adj[b])adj[b]=[];
     adj[a].push({{n:b,w:w,len:len,bike:bike,eKey:edgeKey,isUserEdge:isUserEdge}});
@@ -3285,7 +3470,8 @@ function dijkstraNodes(oNode,dNode,k){{
     const edgeKey=Math.min(e[0],e[1])+'_'+Math.max(e[0],e[1]);
     const isUserEdge=userEdgeSet.has(edgeKey);
     const bike=bikeEdgeSet.has(edgeKey);
-    const w=bike?len:len*k;
+    const discomfort=e[4]||1.0;
+    const w=bike?len:len*k*discomfort;
     if(!adj[a])adj[a]=[];
     if(!adj[b])adj[b]=[];
     adj[a].push({{n:b,w:w,len:len,bike:bike,eKey:edgeKey,isUserEdge:isUserEdge}});
@@ -3382,7 +3568,7 @@ computeAccessibility=function(){{
   btn.textContent="Computing...";
 
   // First compute baseline if needed (active layers only, no wishing)
-  if(!baselineAcc || baselineK!==k || baselineTheta!==theta){{
+  if(!baselineAcc || baselineK!==k || baselineTheta!==theta || baselineWEmp!==wEmp || baselineWEdu!==wEdu || baselineWTransit!==wTransit){{
     prog.innerHTML="<p>Computing baseline (active layers only, no wishing)...</p>";
     computeBaseline();
   }}
@@ -3425,7 +3611,7 @@ computeAccessibility=function(){{
 
         let improvementPct=0;
         let baselineN=0;
-        if(baselineAcc && baselineK===k && baselineTheta===theta && baselineYear===currentYear){{
+        if(baselineAcc && baselineK===k && baselineTheta===theta && baselineYear===currentYear && baselineWEmp===wEmp && baselineWEdu===wEdu && baselineWTransit===wTransit){{
           baselineN=baselineAcc.totalN;
           if(baselineN>0){{
             improvementPct=100*(totalN-baselineN)/baselineN;
@@ -3491,9 +3677,9 @@ computeAccessibility=function(){{
         if(dist[dstNode]!==undefined){{
           const tau=Math.max(dist[dstNode]/1000,0.1);
           const decay=Math.pow(tau,theta);
-          acc_orig[i]+=AREA_EMP[j]*decay;
+          acc_orig[i]+=destWeight(j)*decay;
           acc_dest[j]+=AREA_POP[i]*decay;
-          totalN+=AREA_POP[i]*AREA_EMP[j]*decay;
+          totalN+=AREA_POP[i]*destWeight(j)*decay;
         }}
       }}
 
@@ -3522,29 +3708,58 @@ updateComputePanel();
     <h1 style="color:#2c3e50;margin-top:0">Jerusalem Bike Lane Analysis - Methodology</h1>
 
     <h2 style="color:#34495e">Overview</h2>
-    <p>This tool ranks proposed ("wishing list") bike lanes by their potential contribution to city-wide accessibility. It uses a gravity-based accessibility model to measure how well people can reach jobs across the city, with bike lanes significantly reducing the effective travel cost.</p>
+    <p>This tool ranks proposed ("wishing list") bike lanes by their potential contribution to city-wide accessibility. It uses a gravity-based accessibility model to measure how well people can reach destinations across the city, with bike lanes significantly reducing the effective travel cost.</p>
 
     <h2 style="color:#34495e">The Accessibility Model</h2>
     <h3>Core Formula</h3>
     <p style="background:#f5f5f5;padding:15px;border-radius:4px;font-family:monospace;font-size:1.1em">
-      N = &Sigma;<sub>i</sub> &Sigma;<sub>j</sub> P<sub>i</sub> &times; E<sub>j</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup>
+      N = &Sigma;<sub>i</sub> &Sigma;<sub>j</sub> P<sub>i</sub> &times; D<sub>j</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup>
     </p>
     <p>Where:</p>
     <ul>
       <li><b>P<sub>i</sub></b> = Population of area i (potential trip origins)</li>
-      <li><b>E<sub>j</sub></b> = Employment in area j (potential trip destinations)</li>
+      <li><b>D<sub>j</sub></b> = Weighted destination attractiveness of area j</li>
       <li><b>&tau;<sub>ij</sub></b> = Travel cost (shortest path distance in km) from area i to area j</li>
       <li><b>&theta;</b> = Distance decay parameter (negative, typically -1 to -2)</li>
     </ul>
 
+    <h3>Multi-Destination Model</h3>
+    <p>The destination weight D<sub>j</sub> combines multiple destination types:</p>
+    <p style="background:#f5f5f5;padding:15px;border-radius:4px;font-family:monospace;font-size:1.1em">
+      D<sub>j</sub> = w<sub>emp</sub> &times; E<sub>j</sub> + w<sub>edu</sub> &times; S<sub>j</sub> + w<sub>transit</sub> &times; T<sub>j</sub>
+    </p>
+    <ul>
+      <li><b>E<sub>j</sub></b> = Employment in area j</li>
+      <li><b>S<sub>j</sub></b> = Students in academic institutions in area j</li>
+      <li><b>T<sub>j</sub></b> = Daily transit passengers in area j (train stations)</li>
+      <li><b>w<sub>emp</sub>, w<sub>edu</sub>, w<sub>transit</sub></b> = User-adjustable weights (default: equal)</li>
+    </ul>
+    <p>Institutions include Hebrew University (3 campuses), Bezalel, Hadassah College, Machon Lev, David Yellin, Azrieli, Music Academy, Sam Spiegel, Musrara, and Al-Quds University (~53,600 students total). Transit includes Yitzhak Navon station (~15,000 daily passengers).</p>
+
     <h3>Parameters</h3>
     <h4>K - No-Lane Penalty</h4>
-    <p>Roads without bike lanes are penalized by multiplying their length by K:</p>
+    <p>Roads without bike lanes are penalized by multiplying their length by K and a road discomfort factor:</p>
     <ul>
       <li><code>weight = length</code> for roads WITH bike lanes</li>
-      <li><code>weight = length &times; K</code> for roads WITHOUT bike lanes</li>
+      <li><code>weight = length &times; K &times; discomfort</code> for roads WITHOUT bike lanes</li>
     </ul>
     <p>Higher K values mean cyclists strongly prefer bike lanes: K=10 (mild), K=100 (strong, default), K=500 (very strong).</p>
+
+    <h4>Road Discomfort Factor</h4>
+    <p>Roads are classified by OSM highway type. Major roads receive higher discomfort penalties:</p>
+    <table style="width:100%;border-collapse:collapse;margin-bottom:15px;font-size:0.9em">
+      <tr style="background:#34495e;color:#fff">
+        <th style="padding:6px;border:1px solid #ddd">Road Type</th>
+        <th style="padding:6px;border:1px solid #ddd">Factor</th>
+        <th style="padding:6px;border:1px solid #ddd">Examples</th>
+      </tr>
+      <tr><td style="padding:6px;border:1px solid #ddd">residential</td><td style="padding:6px;border:1px solid #ddd">1.0</td><td style="padding:6px;border:1px solid #ddd">Neighborhood streets</td></tr>
+      <tr style="background:#f9f9f9"><td style="padding:6px;border:1px solid #ddd">tertiary</td><td style="padding:6px;border:1px solid #ddd">1.5</td><td style="padding:6px;border:1px solid #ddd">Minor urban roads</td></tr>
+      <tr><td style="padding:6px;border:1px solid #ddd">secondary</td><td style="padding:6px;border:1px solid #ddd">2.0</td><td style="padding:6px;border:1px solid #ddd">Urban arterials</td></tr>
+      <tr style="background:#f9f9f9"><td style="padding:6px;border:1px solid #ddd">primary</td><td style="padding:6px;border:1px solid #ddd">3.0</td><td style="padding:6px;border:1px solid #ddd">Golda Meir, Herzl</td></tr>
+      <tr><td style="padding:6px;border:1px solid #ddd">trunk</td><td style="padding:6px;border:1px solid #ddd">4.0</td><td style="padding:6px;border:1px solid #ddd">Bazak, Derech Hebron</td></tr>
+      <tr style="background:#f9f9f9"><td style="padding:6px;border:1px solid #ddd">motorway</td><td style="padding:6px;border:1px solid #ddd">5.0</td><td style="padding:6px;border:1px solid #ddd">Begin Expressway</td></tr>
+    </table>
 
     <h4>&theta; (Theta) - Distance Decay</h4>
     <p>Controls how quickly accessibility decreases with distance:</p>
@@ -3574,6 +3789,9 @@ updateComputePanel();
       <tr><td style="padding:8px;border:1px solid #ddd">Checked Bike Lanes</td><td style="padding:8px;border:1px solid #ddd">Jerusalem Transportation Master Plan Team</td></tr>
       <tr style="background:#f9f9f9"><td style="padding:8px;border:1px solid #ddd">Wishing List Bike Lanes</td><td style="padding:8px;border:1px solid #ddd">The author</td></tr>
       <tr><td style="padding:8px;border:1px solid #ddd">Road Network</td><td style="padding:8px;border:1px solid #ddd">OpenStreetMap</td></tr>
+      <tr style="background:#f9f9f9"><td style="padding:8px;border:1px solid #ddd">Road Classification</td><td style="padding:8px;border:1px solid #ddd">OpenStreetMap (Overpass API)</td></tr>
+      <tr><td style="padding:8px;border:1px solid #ddd">Academic Institutions</td><td style="padding:8px;border:1px solid #ddd">OpenStreetMap + student count estimates</td></tr>
+      <tr style="background:#f9f9f9"><td style="padding:8px;border:1px solid #ddd">Train Station Passengers</td><td style="padding:8px;border:1px solid #ddd">Israel Railways estimates</td></tr>
     </table>
 
     <h2 style="color:#34495e">Road Network Construction</h2>
@@ -3618,7 +3836,7 @@ updateComputePanel();
     <h2 style="color:#34495e">Shortest Path Algorithm</h2>
     <p>We use <b>Dijkstra's algorithm</b> to compute shortest paths between all area centroids:</p>
     <ul>
-      <li><b>Graph</b>: Undirected weighted graph where edge weight = length &times; K for roads without bike lanes</li>
+      <li><b>Graph</b>: Undirected weighted graph where edge weight = length &times; K &times; discomfort for roads without bike lanes</li>
       <li><b>Source</b>: Nearest network node to each area centroid</li>
       <li><b>Output</b>: Distance matrix &tau;<sub>ij</sub> between all area pairs</li>
     </ul>
@@ -3630,9 +3848,9 @@ updateComputePanel();
     <p>All accessibility calculations are performed in the browser using JavaScript:</p>
     <ol>
       <li><b>Baseline Computation</b>: When K or &theta; changes, compute accessibility with existing lanes only</li>
-      <li><b>Network Update</b>: When wishing lanes are selected, mark their corresponding road edges as bike lanes (weight = length instead of length &times; K)</li>
-      <li><b>Full Recomputation</b>: Run Dijkstra from each of the ~200 area centroids to compute new &tau;<sub>ij</sub> matrix</li>
-      <li><b>Accessibility Aggregation</b>: Sum P<sub>i</sub> &times; E<sub>j</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup> for all pairs</li>
+      <li><b>Network Update</b>: When wishing lanes are selected, mark their corresponding road edges as bike lanes (weight = length instead of length &times; K &times; discomfort)</li>
+      <li><b>Full Recomputation</b>: Run Dijkstra from each area centroid to compute new &tau;<sub>ij</sub> matrix</li>
+      <li><b>Accessibility Aggregation</b>: Sum P<sub>i</sub> &times; D<sub>j</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup> for all pairs</li>
     </ol>
 
     <h2 style="color:#34495e">How Lanes Are Ranked</h2>
@@ -3643,17 +3861,17 @@ updateComputePanel();
     </ol>
 
     <h2 style="color:#34495e">Area Accessibility</h2>
-    <p><b>Origin Accessibility</b> (where people live):</p>
+    <p><b>Origin Accessibility</b> (destinations reachable from area i):</p>
     <p style="background:#f5f5f5;padding:10px;border-radius:4px;font-family:monospace">
-      acc<sub>origin</sub>[i] = &Sigma;<sub>j</sub> E<sub>j</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup>
+      acc<sub>origin</sub>[i] = &Sigma;<sub>j</sub> D<sub>j</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup>
     </p>
-    <p>Measures how many jobs area i residents can access (weighted by distance).</p>
+    <p>Measures how many weighted destinations (jobs, students, transit) area i residents can access.</p>
 
-    <p><b>Destination Accessibility</b> (where jobs are):</p>
+    <p><b>Destination Accessibility</b> (people who can reach area j):</p>
     <p style="background:#f5f5f5;padding:10px;border-radius:4px;font-family:monospace">
       acc<sub>dest</sub>[j] = &Sigma;<sub>i</sub> P<sub>i</sub> &times; &tau;<sub>ij</sub><sup>&theta;</sup>
     </p>
-    <p>Measures how many people can reach jobs in area j (weighted by distance).</p>
+    <p>Measures how many people can reach area j (e.g., a workplace or campus).</p>
 
     <h2 style="color:#34495e">Visualization</h2>
     <ul>

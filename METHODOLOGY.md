@@ -2,7 +2,7 @@
 
 ## Overview
 
-This tool ranks proposed ("wishing list") bike lanes by their potential contribution to city-wide accessibility. It uses a gravity-based accessibility model to measure how well people can reach jobs across the city, with bike lanes significantly reducing the effective travel cost.
+This tool ranks proposed ("wishing list") bike lanes by their potential contribution to city-wide accessibility. It uses a gravity-based accessibility model to measure how well people can reach destinations across the city, with bike lanes significantly reducing the effective travel cost.
 
 ## The Accessibility Model
 
@@ -11,26 +11,64 @@ This tool ranks proposed ("wishing list") bike lanes by their potential contribu
 The total accessibility metric N is computed as:
 
 ```
-N = Σᵢ Σⱼ Pᵢ × Eⱼ × τᵢⱼ^θ
+N = Σᵢ Σⱼ Pᵢ × Dⱼ × τᵢⱼ^θ
 ```
 
 Where:
 - **Pᵢ** = Population of area i (potential trip origins)
-- **Eⱼ** = Employment in area j (potential trip destinations)
+- **Dⱼ** = Weighted destination attractiveness of area j (see Multi-Destination Model below)
 - **τᵢⱼ** = Travel cost (shortest path distance in km) from area i to area j
 - **θ** = Distance decay parameter (negative, typically -1 to -2)
+
+### Multi-Destination Model
+
+The destination weight Dⱼ combines multiple destination types:
+
+```
+Dⱼ = w_emp × Eⱼ + w_edu × Sⱼ + w_transit × Tⱼ
+```
+
+Where:
+- **Eⱼ** = Employment in area j
+- **Sⱼ** = Number of students in academic institutions in area j
+- **Tⱼ** = Daily transit passengers in area j (train stations)
+- **w_emp, w_edu, w_transit** = User-adjustable weights (default: equal, summing to 1)
+
+This allows the model to evaluate bike lanes not just for commuting to work, but also for reaching universities, colleges, and transit hubs.
+
+#### Education Data
+Academic institutions are assigned to their containing statistical area, weighted by student count. Institutions include Hebrew University (3 campuses), Bezalel, Hadassah College, Machon Lev, David Yellin, Azrieli Engineering, the Music Academy, Sam Spiegel, Musrara, and Al-Quds University (~53,600 students total).
+
+#### Transit Data
+Train stations are assigned to their containing statistical area, weighted by daily passenger count. Currently includes Yitzhak Navon station (~15,000 daily passengers).
 
 ### Parameters
 
 #### K - No-Lane Penalty
-Roads without bike lanes are penalized by multiplying their length by K:
+Roads without bike lanes are penalized by multiplying their length by K and a road discomfort factor:
 - `weight = length` for roads WITH bike lanes
-- `weight = length × K` for roads WITHOUT bike lanes
+- `weight = length × K × discomfort` for roads WITHOUT bike lanes
 
 Higher K values mean cyclists strongly prefer bike lanes, even if it means longer routes:
 - K=10: Mild preference for bike lanes
 - K=100: Strong preference (default)
 - K=500: Very strong preference
+
+#### Road Discomfort Factor
+Not all roads are equally unpleasant to cycle on. Roads are classified by their OSM highway type, and each type receives a discomfort multiplier:
+
+| Road Type | Discomfort Factor | Examples |
+|-----------|------------------|----------|
+| residential / living_street | 1.0 | Neighborhood streets |
+| tertiary | 1.5 | Minor urban roads |
+| secondary | 2.0 | Urban arterials |
+| primary | 3.0 | Major arterials (Golda Meir, Herzl) |
+| trunk | 4.0 | Major roads (Bazak, Derech Hebron) |
+| motorway | 5.0 | Expressways (Begin) |
+
+This means a bike lane on Derech Begin (motorway, discomfort=5) removes 5× more penalty than a bike lane on a quiet residential street, reflecting its much greater impact on cyclist comfort and safety.
+
+Road classification data is sourced from OpenStreetMap via the Overpass API (`jerusalem_roads_major.csv`). Roads not found in the classification default to discomfort=1.0.
 
 #### θ (Theta) - Distance Decay
 Controls how quickly accessibility decreases with distance:
@@ -57,8 +95,9 @@ Controls how quickly accessibility decreases with distance:
 
 A lane's improvement reflects how much it:
 - Connects previously disconnected bike infrastructure
-- Provides shortcuts between population centers and employment hubs
+- Provides shortcuts between population centers and destinations (jobs, universities, transit)
 - Reduces effective travel cost for many origin-destination pairs
+- Removes high discomfort penalties on major roads
 
 ## Network Construction
 
@@ -73,6 +112,9 @@ A lane's improvement reflects how much it:
 | **Under Construction Bike Lanes** | Jerusalem Transportation Master Plan Team |
 | **Wishing List Bike Lanes** | The author |
 | **Road Network** | OpenStreetMap |
+| **Road Classification** | OpenStreetMap (Overpass API) |
+| **Academic Institutions** | OpenStreetMap + student count estimates |
+| **Train Station Passengers** | Israel Railways estimates |
 
 ### Source Files
 
@@ -83,11 +125,12 @@ A lane's improvement reflects how much it:
 | `bike_lanes_construction.kml` | Lanes under construction |
 | `bike_lanes_wishing_list.kml` | Proposed future lanes |
 | `jerusalem_roads.kml` | Road network (filtered to Jerusalem with 1km buffer) |
+| `jerusalem_roads_major.csv` | OSM highway classification for road discomfort factors |
 
 ### Graph Building
 1. Roads are converted to a graph with nodes at endpoints
 2. Bike lanes overlay the road network
-3. Each edge stores: length (meters), has_bike_lane (boolean)
+3. Each edge stores: length (meters), has_bike_lane (boolean), discomfort factor
 4. Node tolerance of 15m is used to merge nearby endpoints
 
 ### Coordinate Systems
@@ -129,19 +172,19 @@ This connectivity fixing is essential because raw GIS data often has small gaps,
 
 ## Area Accessibility Metrics
 
-### Origin Accessibility (Jobs Reachable)
+### Origin Accessibility (Destinations Reachable)
 For each area i:
 ```
-acc_origin[i] = Σⱼ Eⱼ × τᵢⱼ^θ
+acc_origin[i] = Σⱼ Dⱼ × τᵢⱼ^θ
 ```
-This measures how many jobs are accessible FROM area i.
+This measures how many weighted destinations are accessible FROM area i (where Dⱼ combines employment, education, and transit).
 
 ### Destination Accessibility (People Reaching)
 For each area j:
 ```
 acc_dest[j] = Σᵢ Pᵢ × τᵢⱼ^θ
 ```
-This measures how many people can reach area j (e.g., how accessible is a workplace).
+This measures how many people can reach area j (e.g., how accessible is a workplace or campus).
 
 ## Interactive Map Features
 
@@ -179,10 +222,13 @@ When drawing custom lanes:
 
 ### Parameters
 - Adjust K and θ to see how rankings change
+- Adjust destination weights to prioritize employment, education, or transit accessibility
 - Different parameter combinations favor different lane types:
   - High K: Lanes that connect existing infrastructure
   - Low θ (more negative): Lanes serving local trips
   - High θ (less negative): Lanes enabling longer commutes
+  - High education weight: Lanes connecting to university campuses
+  - High transit weight: Lanes connecting to train stations
 
 ## Output Files
 
@@ -194,7 +240,7 @@ When drawing custom lanes:
 ## Technical Notes
 
 ### Performance
-- Network has ~8,000 nodes and ~11,000 edges
+- Network has ~9,600 nodes and ~13,700 edges
 - Each accessibility calculation requires ~100 Dijkstra runs (one per area)
 - All calculations run client-side in the browser
 
