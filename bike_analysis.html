@@ -76,7 +76,7 @@ button:hover{background:#2980b9}
 </head>
 <body>
 <div class="header">
-  <h1>Jerusalem Bike Lane Analysis <span style="font-size:12px;color:#7f8c8d;font-weight:normal">v3faf783</span></h1>
+  <h1>Jerusalem Bike Lane Analysis <span style="font-size:12px;color:#7f8c8d;font-weight:normal">v71808d9</span></h1>
   <span id="totalImp">Estimated total improvement: 0%</span>
 </div>
 <div class="formula">
@@ -732,6 +732,12 @@ function refresh(){
   wishLyr.setStyle(f=>{
     const s=sel.has(f.properties.lane_id);
     return {color:s?"#9b59b6":"#FF9800",weight:s?5:3,opacity:.8};
+  });
+  // Bring selected lanes to front so they're visible above other layers
+  wishLyr.eachLayer(function(layer){
+    if(layer.feature && sel.has(layer.feature.properties.lane_id)){
+      layer.bringToFront();
+    }
   });
   // Update lane list
   buildLaneList();

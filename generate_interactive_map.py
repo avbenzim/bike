@@ -1844,6 +1844,12 @@ function refresh(){{
     const s=sel.has(f.properties.lane_id);
     return {{color:s?"#9b59b6":"#FF9800",weight:s?5:3,opacity:.8}};
   }});
+  // Bring selected lanes to front so they're visible above other layers
+  wishLyr.eachLayer(function(layer){{
+    if(layer.feature && sel.has(layer.feature.properties.lane_id)){{
+      layer.bringToFront();
+    }}
+  }});
   // Update lane list
   buildLaneList();
   // Update total improvement display
