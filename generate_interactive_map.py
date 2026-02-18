@@ -1206,7 +1206,13 @@ button:hover{{background:#2980b9}}
 .impact-box.negative h4{{color:#c62828}}
 .export-section{{margin-top:12px;padding-top:12px;border-top:1px solid #ddd}}
 .sidebar-toggle{{display:none;position:fixed;bottom:20px;right:20px;z-index:2000;width:50px;height:50px;border-radius:50%;background:#3498db;color:#fff;border:none;font-size:24px;box-shadow:0 2px 10px rgba(0,0,0,.4);cursor:pointer}}
+.panel-btns{{display:flex;gap:4px;flex-shrink:0}}
+.hdr-btn{{padding:3px 8px;font-size:11px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);border-radius:3px;color:#ccc;cursor:pointer}}
+.hdr-btn:hover{{background:rgba(255,255,255,0.25);color:#fff}}
+.formula.collapsed,.controls.collapsed{{display:none}}
+.sidebar.collapsed{{width:0;min-width:0;padding:0;overflow:hidden}}
 @media(max-width:768px){{
+  .panel-btns{{display:none}}
   .header{{flex-direction:column;gap:4px;padding:8px 12px}}
   .header h1{{font-size:1.1em}}
   .formula{{display:none}}
@@ -1236,8 +1242,13 @@ button:hover{{background:#2980b9}}
 <body>
 <div class="header">
   <h1>Jerusalem Bike Lane Analysis <span style="font-size:12px;color:#7f8c8d;font-weight:normal">v{version}</span></h1>
-  <div style="display:flex;align-items:center;gap:8px">
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
     <span id="totalImp">Estimated total improvement: 0%</span>
+    <div class="panel-btns">
+      <button class="hdr-btn" id="btnFormula" onclick="togglePanelSection('formula','btnFormula','Formula')">Formula &#9660;</button>
+      <button class="hdr-btn" id="btnParams" onclick="togglePanelSection('controls','btnParams','Params')">Params &#9660;</button>
+      <button class="hdr-btn" id="btnSidebar" onclick="toggleSidebarDesktop()">Panel &#9660;</button>
+    </div>
     <button class="method-btn-mobile" onclick="document.getElementById('methodModal').style.display='flex'" style="display:none;padding:4px 10px;background:#27ae60;color:#fff;border-radius:4px;border:none;font-size:11px;cursor:pointer">Methodology</button>
   </div>
 </div>
@@ -3934,6 +3945,20 @@ function toggleSidebar(){{
   btn.innerHTML=sb.classList.contains('mobile-hidden')?'&#9776;':'&times;';
   // Invalidate map size when sidebar toggled
   setTimeout(()=>{{if(typeof map!=='undefined')map.invalidateSize();}},100);
+}}
+function togglePanelSection(cls,btnId,label){{
+  const el=document.querySelector('.'+cls);
+  const btn=document.getElementById(btnId);
+  const collapsed=el.classList.toggle('collapsed');
+  btn.innerHTML=label+' '+(collapsed?'&#9654;':'&#9660;');
+  setTimeout(()=>{{if(typeof map!=='undefined')map.invalidateSize();}},50);
+}}
+function toggleSidebarDesktop(){{
+  const sb=document.querySelector('.sidebar');
+  const btn=document.getElementById('btnSidebar');
+  const collapsed=sb.classList.toggle('collapsed');
+  btn.innerHTML='Panel '+(collapsed?'&#9654;':'&#9660;');
+  setTimeout(()=>{{if(typeof map!=='undefined')map.invalidateSize();}},50);
 }}
 </script>
 </body>
