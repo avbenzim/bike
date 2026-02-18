@@ -118,7 +118,7 @@ button:hover{background:#2980b9}
 </head>
 <body>
 <div class="header">
-  <h1>Jerusalem Bike Lane Analysis <span style="font-size:12px;color:#7f8c8d;font-weight:normal">vd84b425</span></h1>
+  <h1>Jerusalem Bike Lane Analysis <span style="font-size:12px;color:#7f8c8d;font-weight:normal">v6b9588b</span></h1>
   <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
     <span id="totalImp">Estimated total improvement: 0%</span>
     <div class="panel-btns">
@@ -2938,6 +2938,10 @@ if(window.innerWidth<=768){
   const btn=document.getElementById('btnParams');
   if(ctrl&&btn){ctrl.classList.add('collapsed');btn.innerHTML='Params &#9654;';}
 }
+// After layout settles (especially on mobile where flex:1 map height depends on
+// collapsed controls), tell Leaflet the real container size
+setTimeout(()=>{if(typeof map!=='undefined')map.invalidateSize();},300);
+window.addEventListener('load',()=>setTimeout(()=>{if(typeof map!=='undefined')map.invalidateSize();},200));
 </script>
 </body>
 </html>

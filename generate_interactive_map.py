@@ -4049,6 +4049,10 @@ if(window.innerWidth<=768){{
   const btn=document.getElementById('btnParams');
   if(ctrl&&btn){{ctrl.classList.add('collapsed');btn.innerHTML='Params &#9654;';}}
 }}
+// After layout settles (especially on mobile where flex:1 map height depends on
+// collapsed controls), tell Leaflet the real container size
+setTimeout(()=>{{if(typeof map!=='undefined')map.invalidateSize();}},300);
+window.addEventListener('load',()=>setTimeout(()=>{{if(typeof map!=='undefined')map.invalidateSize();}},200));
 </script>
 </body>
 </html>'''
