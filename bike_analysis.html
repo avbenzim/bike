@@ -118,7 +118,7 @@ button:hover{background:#2980b9}
 </head>
 <body>
 <div class="header">
-  <h1>Jerusalem Bike Lane Analysis <span style="font-size:12px;color:#7f8c8d;font-weight:normal">v6b9588b</span></h1>
+  <h1>Jerusalem Bike Lane Analysis <span style="font-size:12px;color:#7f8c8d;font-weight:normal">vc118e44</span></h1>
   <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
     <span id="totalImp">Estimated total improvement: 0%</span>
     <div class="panel-btns">
@@ -201,6 +201,7 @@ button:hover{background:#2980b9}
         <input type="range" id="wTransitSlider" min="0" max="100" value="33" style="width:80px" oninput="updateWeights()">
         <span id="wTransitVal" style="width:30px">33%</span>
       </div>
+      <button onclick="resetWeights()" style="margin-top:2px;padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);border-radius:3px;color:#ccc;cursor:pointer;align-self:flex-start">Reset</button>
     </div>
   </div>
   <div class="cg">
@@ -504,6 +505,10 @@ function handleYearChange(){
   onParamsChanged();
 }
 
+function resetWeights(){
+  ['wEmpSlider','wEduSlider','wTransitSlider'].forEach(id=>document.getElementById(id).value=33);
+  updateWeights();
+}
 function updateWeights(){
   const e=parseInt(document.getElementById('wEmpSlider').value);
   const d=parseInt(document.getElementById('wEduSlider').value);

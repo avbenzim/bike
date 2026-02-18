@@ -1312,6 +1312,7 @@ button:hover{{background:#2980b9}}
         <input type="range" id="wTransitSlider" min="0" max="100" value="33" style="width:80px" oninput="updateWeights()">
         <span id="wTransitVal" style="width:30px">33%</span>
       </div>
+      <button onclick="resetWeights()" style="margin-top:2px;padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);border-radius:3px;color:#ccc;cursor:pointer;align-self:flex-start">Reset</button>
     </div>
   </div>
   <div class="cg">
@@ -1615,6 +1616,10 @@ function handleYearChange(){{
   onParamsChanged();
 }}
 
+function resetWeights(){{
+  ['wEmpSlider','wEduSlider','wTransitSlider'].forEach(id=>document.getElementById(id).value=33);
+  updateWeights();
+}}
 function updateWeights(){{
   const e=parseInt(document.getElementById('wEmpSlider').value);
   const d=parseInt(document.getElementById('wEduSlider').value);
