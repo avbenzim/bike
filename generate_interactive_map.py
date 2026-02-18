@@ -3969,12 +3969,27 @@ function togglePanelSection(cls,btnId,label){{
   btn.innerHTML=label+' '+(collapsed?'&#9654;':'&#9660;');
   setTimeout(()=>{{if(typeof map!=='undefined')map.invalidateSize();}},50);
 }}
+let _savedSidebarSize=null;
 function toggleSidebarDesktop(){{
   const sb=document.querySelector('.sidebar');
   const btn=document.getElementById('btnSidebar');
   sb.classList.remove('mobile-hidden');
-  const collapsed=sb.classList.toggle('collapsed');
-  btn.innerHTML='Panel '+(collapsed?'&#9654;':'&#9660;');
+  const isMobile=window.innerWidth<=768;
+  if(!sb.classList.contains('collapsed')){{
+    // Save current size (inline or computed), then clear inline so CSS class works
+    _savedSidebarSize=isMobile?sb.offsetHeight+'px':sb.offsetWidth+'px';
+    sb.style.width='';sb.style.height='';sb.style.overflowY='';
+    sb.classList.add('collapsed');
+    btn.innerHTML='Panel &#9654;';
+  }}else{{
+    sb.classList.remove('collapsed');
+    if(_savedSidebarSize){{
+      if(isMobile)sb.style.height=_savedSidebarSize;
+      else sb.style.width=_savedSidebarSize;
+    }}
+    sb.style.overflowY='auto';
+    btn.innerHTML='Panel &#9660;';
+  }}
   setTimeout(()=>{{if(typeof map!=='undefined')map.invalidateSize();}},250);
 }}
 function toggleLegend(){{
@@ -3999,6 +4014,7 @@ function toggleLegend(){{
       const dx=startX-(e.touches?e.touches[0].clientX:e.clientX);
       sb.style.width=Math.max(200,Math.min(window.innerWidth*0.6,startW+dx))+'px';
     }}
+    sb.style.overflowY='auto';
     if(typeof map!=='undefined')map.invalidateSize();
   }}
   function onUp(){{
@@ -4010,6 +4026,7 @@ function toggleLegend(){{
     document.removeEventListener('touchend',onUp);
   }}
   function onDown(e){{
+    if(document.querySelector('.sidebar').classList.contains('collapsed'))return;
     dragging=true;
     handle.classList.add('dragging');
     const sb=document.querySelector('.sidebar');
