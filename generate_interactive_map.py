@@ -1158,7 +1158,7 @@ button:hover{{background:#2980b9}}
 .main{{display:flex;flex:1;overflow:hidden}}
 .map-wrap{{flex:1;position:relative}}
 #map{{width:100%;height:100%}}
-.sidebar{{width:380px;background:#ecf0f1;overflow-y:auto;padding:12px;font-size:.9em}}
+.sidebar{{width:380px;background:#ecf0f1;overflow-y:auto;padding:12px;font-size:.9em;flex-shrink:0;transition:width .2s ease}}
 .sidebar h3{{margin:0 0 8px;color:#2c3e50;border-bottom:2px solid #3498db;padding-bottom:4px}}
 .tabs{{display:flex;gap:6px;margin-bottom:10px}}
 .tabs button{{flex:1;padding:8px;text-align:center}}
@@ -1211,6 +1211,12 @@ button:hover{{background:#2980b9}}
 .hdr-btn:hover{{background:rgba(255,255,255,0.25);color:#fff}}
 .formula.collapsed,.controls.collapsed{{display:none}}
 .sidebar.collapsed{{width:0;min-width:0;padding:0;overflow:hidden}}
+.resize-handle{{width:5px;background:#bdc3c7;cursor:col-resize;flex-shrink:0;transition:background .15s}}
+.resize-handle:hover,.resize-handle.dragging{{background:#7f8c8d}}
+.legend-header{{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;cursor:pointer}}
+.legend-header strong{{flex:1}}
+.legend-toggle{{background:none;border:none;padding:0 2px;font-size:14px;color:#666;cursor:pointer;line-height:1}}
+#legendContent.collapsed{{display:none}}
 @media(max-width:768px){{
   .header{{flex-direction:column;gap:4px;padding:8px 12px}}
   .header h1{{font-size:1.1em}}
@@ -1219,8 +1225,9 @@ button:hover{{background:#2980b9}}
   .controls{{padding:8px 12px;gap:10px}}
   .cg label{{font-size:.8em}}
   .main{{flex-direction:column}}
-  .map-wrap{{height:55vh;flex:none}}
-  .sidebar{{width:100%;height:45vh;overflow-y:auto}}
+  .map-wrap{{flex:1;min-height:200px}}
+  .sidebar{{width:100%;height:45vh;overflow-y:auto;flex-shrink:0;transition:height .2s ease}}
+  .resize-handle{{width:100%;height:5px;cursor:row-resize}}
   .sidebar.mobile-hidden{{display:none}}
   .sidebar-toggle{{display:block}}
   .method-btn-mobile{{display:inline-block!important}}
@@ -1231,12 +1238,11 @@ button:hover{{background:#2980b9}}
 }}
 @media(max-width:768px){{
   .sidebar.collapsed{{width:100%;height:0;min-height:0;padding:0;overflow:hidden}}
-  .controls.collapsed{{display:none}}
 }}
+
 @media(max-width:480px){{
   .header h1{{font-size:.95em}}
   .controls{{flex-direction:column;gap:8px;align-items:flex-start}}
-  .map-wrap{{height:50vh}}
   .sidebar{{height:50vh}}
   .tabs{{flex-wrap:wrap}}
   .tabs button{{flex:none;font-size:.7em;padding:5px 6px}}
@@ -1327,25 +1333,30 @@ button:hover{{background:#2980b9}}
   <div class="map-wrap">
     <div id="map"></div>
     <div class="legend">
-      <strong>Legend - Network Layers</strong>
-      <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrCompleted" checked onchange="toggleLayer('completed')"><div class="legend-line" style="background:#1B5E20"></div>Existing lanes</label></div>
-      <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrConstruction" checked onchange="toggleLayer('construction')"><div class="legend-line" style="background:#81C784"></div>Under construction</label></div>
-      <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrPlan" onchange="toggleLayer('plan')"><div class="legend-line" style="background:#2196F3"></div>In planning</label></div>
-      <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrCheck" onchange="toggleLayer('check')"><div class="legend-line" style="background:#00BCD4"></div>In checking</label></div>
-      <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrWishing" onchange="toggleLayer('wishing')"><div class="legend-line" style="background:#FF9800"></div>Wishing list</label></div>
-      <hr style="margin:6px 0;border:none;border-top:1px solid #ccc">
-      <div class="legend-item"><div class="legend-line" style="background:#9b59b6;height:6px"></div>Selected wishing lane</div>
-      <div class="legend-item"><div class="legend-line" style="background:#E91E63;height:6px"></div>User-drawn lane</div>
-      <div class="legend-item"><div class="legend-line" style="background:#1565C0;height:6px"></div>Path on bike lane</div>
-      <div class="legend-item"><div class="legend-line" style="background:#E65100;height:6px"></div>Path on road</div>
-      <hr style="margin:6px 0;border:none;border-top:1px solid #ccc">
-      <strong>Area Accessibility (log scale)</strong>
-      <div class="legend-item" style="flex-direction:column;align-items:flex-start;gap:2px">
-        <div style="display:flex;align-items:center;gap:4px">
-          <div style="width:80px;height:12px;background:linear-gradient(to right,#0000CD,#00CED1,#FFFF00,#FFA500,#DC143C);border-radius:2px"></div>
-        </div>
-        <div style="display:flex;justify-content:space-between;width:80px;font-size:0.75em">
-          <span>Low</span><span>High</span>
+      <div class="legend-header" onclick="toggleLegend()">
+        <strong>Legend</strong>
+        <button class="legend-toggle" id="legendToggle">&#9660;</button>
+      </div>
+      <div id="legendContent">
+        <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrCompleted" checked onchange="toggleLayer('completed')"><div class="legend-line" style="background:#1B5E20"></div>Existing lanes</label></div>
+        <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrConstruction" checked onchange="toggleLayer('construction')"><div class="legend-line" style="background:#81C784"></div>Under construction</label></div>
+        <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrPlan" onchange="toggleLayer('plan')"><div class="legend-line" style="background:#2196F3"></div>In planning</label></div>
+        <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrCheck" onchange="toggleLayer('check')"><div class="legend-line" style="background:#00BCD4"></div>In checking</label></div>
+        <div class="legend-item"><label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="lyrWishing" onchange="toggleLayer('wishing')"><div class="legend-line" style="background:#FF9800"></div>Wishing list</label></div>
+        <hr style="margin:6px 0;border:none;border-top:1px solid #ccc">
+        <div class="legend-item"><div class="legend-line" style="background:#9b59b6;height:6px"></div>Selected wishing lane</div>
+        <div class="legend-item"><div class="legend-line" style="background:#E91E63;height:6px"></div>User-drawn lane</div>
+        <div class="legend-item"><div class="legend-line" style="background:#1565C0;height:6px"></div>Path on bike lane</div>
+        <div class="legend-item"><div class="legend-line" style="background:#E65100;height:6px"></div>Path on road</div>
+        <hr style="margin:6px 0;border:none;border-top:1px solid #ccc">
+        <strong>Area Accessibility (log scale)</strong>
+        <div class="legend-item" style="flex-direction:column;align-items:flex-start;gap:2px">
+          <div style="display:flex;align-items:center;gap:4px">
+            <div style="width:80px;height:12px;background:linear-gradient(to right,#0000CD,#00CED1,#FFFF00,#FFA500,#DC143C);border-radius:2px"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;width:80px;font-size:0.75em">
+            <span>Low</span><span>High</span>
+          </div>
         </div>
       </div>
     </div>
@@ -1354,6 +1365,7 @@ button:hover{{background:#2980b9}}
       <div id="infoBody"></div>
     </div>
   </div>
+  <div class="resize-handle" id="resizeHandle"></div>
   <div class="sidebar">
     <div class="tabs">
       <button class="act" onclick="showTab('lanes',this)">Select Lanes</button>
@@ -3960,12 +3972,60 @@ function togglePanelSection(cls,btnId,label){{
 function toggleSidebarDesktop(){{
   const sb=document.querySelector('.sidebar');
   const btn=document.getElementById('btnSidebar');
-  // Remove mobile-hidden if present to avoid conflict
   sb.classList.remove('mobile-hidden');
   const collapsed=sb.classList.toggle('collapsed');
   btn.innerHTML='Panel '+(collapsed?'&#9654;':'&#9660;');
-  setTimeout(()=>{{if(typeof map!=='undefined')map.invalidateSize();}},100);
+  setTimeout(()=>{{if(typeof map!=='undefined')map.invalidateSize();}},250);
 }}
+function toggleLegend(){{
+  const content=document.getElementById('legendContent');
+  const btn=document.getElementById('legendToggle');
+  const collapsed=content.classList.toggle('collapsed');
+  btn.innerHTML=collapsed?'&#9654;':'&#9660;';
+}}
+// Resize handle
+(function(){{
+  const handle=document.getElementById('resizeHandle');
+  if(!handle)return;
+  let dragging=false,startX,startY,startW,startH;
+  function onMove(e){{
+    if(!dragging)return;
+    const sb=document.querySelector('.sidebar');
+    const isMobile=window.innerWidth<=768;
+    if(isMobile){{
+      const dy=startY-(e.touches?e.touches[0].clientY:e.clientY);
+      sb.style.height=Math.max(80,Math.min(window.innerHeight*0.8,startH+dy))+'px';
+    }}else{{
+      const dx=startX-(e.touches?e.touches[0].clientX:e.clientX);
+      sb.style.width=Math.max(200,Math.min(window.innerWidth*0.6,startW+dx))+'px';
+    }}
+    if(typeof map!=='undefined')map.invalidateSize();
+  }}
+  function onUp(){{
+    dragging=false;
+    handle.classList.remove('dragging');
+    document.removeEventListener('mousemove',onMove);
+    document.removeEventListener('mouseup',onUp);
+    document.removeEventListener('touchmove',onMove);
+    document.removeEventListener('touchend',onUp);
+  }}
+  function onDown(e){{
+    dragging=true;
+    handle.classList.add('dragging');
+    const sb=document.querySelector('.sidebar');
+    startX=e.touches?e.touches[0].clientX:e.clientX;
+    startY=e.touches?e.touches[0].clientY:e.clientY;
+    startW=sb.offsetWidth;
+    startH=sb.offsetHeight;
+    document.addEventListener('mousemove',onMove);
+    document.addEventListener('mouseup',onUp);
+    document.addEventListener('touchmove',onMove,{{passive:false}});
+    document.addEventListener('touchend',onUp);
+    e.preventDefault();
+  }}
+  handle.addEventListener('mousedown',onDown);
+  handle.addEventListener('touchstart',onDown,{{passive:false}});
+}})();
 // On mobile: auto-collapse controls to give more map space
 if(window.innerWidth<=768){{
   const ctrl=document.querySelector('.controls');
