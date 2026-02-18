@@ -1212,10 +1212,10 @@ button:hover{{background:#2980b9}}
 .formula.collapsed,.controls.collapsed{{display:none}}
 .sidebar.collapsed{{width:0;min-width:0;padding:0;overflow:hidden}}
 @media(max-width:768px){{
-  .panel-btns{{display:none}}
   .header{{flex-direction:column;gap:4px;padding:8px 12px}}
   .header h1{{font-size:1.1em}}
   .formula{{display:none}}
+  #btnFormula{{display:none!important}}
   .controls{{padding:8px 12px;gap:10px}}
   .cg label{{font-size:.8em}}
   .main{{flex-direction:column}}
@@ -1228,6 +1228,10 @@ button:hover{{background:#2980b9}}
   .info{{max-width:200px;font-size:.85em}}
   .tabs button{{padding:6px 4px;font-size:.75em}}
   #totalImp{{font-size:.8em}}
+}}
+@media(max-width:768px){{
+  .sidebar.collapsed{{width:100%;height:0;min-height:0;padding:0;overflow:hidden}}
+  .controls.collapsed{{display:none}}
 }}
 @media(max-width:480px){{
   .header h1{{font-size:.95em}}
@@ -3956,9 +3960,17 @@ function togglePanelSection(cls,btnId,label){{
 function toggleSidebarDesktop(){{
   const sb=document.querySelector('.sidebar');
   const btn=document.getElementById('btnSidebar');
+  // Remove mobile-hidden if present to avoid conflict
+  sb.classList.remove('mobile-hidden');
   const collapsed=sb.classList.toggle('collapsed');
   btn.innerHTML='Panel '+(collapsed?'&#9654;':'&#9660;');
-  setTimeout(()=>{{if(typeof map!=='undefined')map.invalidateSize();}},50);
+  setTimeout(()=>{{if(typeof map!=='undefined')map.invalidateSize();}},100);
+}}
+// On mobile: auto-collapse controls to give more map space
+if(window.innerWidth<=768){{
+  const ctrl=document.querySelector('.controls');
+  const btn=document.getElementById('btnParams');
+  if(ctrl&&btn){{ctrl.classList.add('collapsed');btn.innerHTML='Params &#9654;';}}
 }}
 </script>
 </body>
