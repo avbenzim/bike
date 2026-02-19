@@ -67,7 +67,7 @@ INSTITUTIONS = [
 ]
 
 TRAIN_STATIONS = [
-    {"name": "Yitzhak Navon", "lat": 31.7881, "lon": 35.2028, "passengers": 15000},
+    {"name": "Yitzhak Navon", "lat": 31.7881, "lon": 35.2028, "passengers": 8000},
 ]
 
 
@@ -1037,6 +1037,12 @@ def main():
     area_students = [round(float(v), 0) for v in areas_proj['students'].values]
     area_transit = [round(float(v), 0) for v in areas_proj['transit'].values]
 
+    # School & kindergarten data (year-dependent, from stud_ shapefile field)
+    area_school_by_year = {}
+    for year in DATA_YEARS:
+        area_school_by_year[year] = [round(float(v), 0) for v in areas_proj[f'stud_{year}'].fillna(0).values]
+    area_school = area_school_by_year[DEFAULT_YEAR]
+
     # Pre-compute area center nodes (which network node is closest to each area centroid)
     centroids_proj = [[round(c.x, 1), round(c.y, 1)] for c in areas_proj.geometry.centroid]
     area_center_nodes = []
@@ -1063,6 +1069,8 @@ def main():
         area_emp_by_year=area_emp_by_year,
         area_students=area_students,
         area_transit=area_transit,
+        area_school=area_school,
+        area_school_by_year=area_school_by_year,
         data_years=DATA_YEARS,
         default_year=DEFAULT_YEAR,
         area_center_nodes=area_center_nodes,
@@ -1096,7 +1104,7 @@ def generate_html(*, areas_geojson, completed_geojson, construction_geojson,
                   plan_geojson, check_geojson,
                   wishing_geojson, lane_names, lane_lengths, area_names,
                   area_pop, area_emp, area_pop_by_year, area_emp_by_year,
-                  area_students, area_transit,
+                  area_students, area_transit, area_school, area_school_by_year,
                   data_years, default_year, area_center_nodes,
                   nodes_wgs, edges_list, edge_geoms_wgs,
                   completed_edges, completed_virtual_edges,
@@ -1299,18 +1307,23 @@ button:hover{{background:#2980b9}}
     <div style="display:flex;flex-direction:column;gap:2px;font-size:11px">
       <div style="display:flex;align-items:center;gap:4px">
         <span style="width:62px;color:#fff">Employment</span>
-        <input type="range" id="wEmpSlider" min="0" max="100" value="33" style="width:80px" oninput="updateWeights()">
-        <span id="wEmpVal" style="width:30px">33%</span>
+        <input type="range" id="wEmpSlider" min="0" max="100" value="25" style="width:80px" oninput="updateWeights()">
+        <span id="wEmpVal" style="width:30px">25%</span>
       </div>
       <div style="display:flex;align-items:center;gap:4px">
-        <span style="width:62px;color:#fff">Education</span>
-        <input type="range" id="wEduSlider" min="0" max="100" value="33" style="width:80px" oninput="updateWeights()">
-        <span id="wEduVal" style="width:30px">33%</span>
+        <span style="width:62px;color:#fff">University</span>
+        <input type="range" id="wEduSlider" min="0" max="100" value="25" style="width:80px" oninput="updateWeights()">
+        <span id="wEduVal" style="width:30px">25%</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:4px">
+        <span style="width:62px;color:#fff">Schools</span>
+        <input type="range" id="wSchoolSlider" min="0" max="100" value="25" style="width:80px" oninput="updateWeights()">
+        <span id="wSchoolVal" style="width:30px">25%</span>
       </div>
       <div style="display:flex;align-items:center;gap:4px">
         <span style="width:62px;color:#fff">Transit</span>
-        <input type="range" id="wTransitSlider" min="0" max="100" value="33" style="width:80px" oninput="updateWeights()">
-        <span id="wTransitVal" style="width:30px">33%</span>
+        <input type="range" id="wTransitSlider" min="0" max="100" value="25" style="width:80px" oninput="updateWeights()">
+        <span id="wTransitVal" style="width:30px">25%</span>
       </div>
       <button onclick="resetWeights()" style="margin-top:2px;padding:2px 8px;font-size:11px;background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);border-radius:3px;color:#ccc;cursor:pointer;align-self:flex-start">Reset</button>
     </div>
@@ -1490,6 +1503,8 @@ const AREA_POP_BY_YEAR={js_json(area_pop_by_year)};
 const AREA_EMP_BY_YEAR={js_json(area_emp_by_year)};
 const AREA_STUDENTS={js_json(area_students)};
 const AREA_TRANSIT={js_json(area_transit)};
+const AREA_SCHOOL_BY_YEAR={js_json(area_school_by_year)};
+let AREA_SCHOOL={js_json(area_school)};
 const DATA_YEARS={js_json(data_years)};
 const DEFAULT_YEAR={default_year};
 const AREA_NODES={js_json(area_center_nodes)};
@@ -1528,8 +1543,8 @@ let currentTheta=-1.0;
 let currentYear=DEFAULT_YEAR;
 
 // Destination layer weights (normalized to sum to 1)
-let wEmp=1/3,wEdu=1/3,wTransit=1/3;
-function destWeight(j){{return wEmp*AREA_EMP[j]+wEdu*AREA_STUDENTS[j]+wTransit*AREA_TRANSIT[j];}}
+let wEmp=0.25,wEdu=0.25,wSchool=0.25,wTransit=0.25;
+function destWeight(j){{return wEmp*AREA_EMP[j]+wEdu*AREA_STUDENTS[j]+wSchool*AREA_SCHOOL[j]+wTransit*AREA_TRANSIT[j];}}
 
 // Baseline = accessibility with NO wishing lanes (computed when K/theta/year changes)
 let baselineAcc=null;
@@ -1538,6 +1553,7 @@ let baselineTheta=null;
 let baselineYear=null;
 let baselineWEmp=null;
 let baselineWEdu=null;
+let baselineWSchool=null;
 let baselineWTransit=null;
 
 // Computed = accessibility WITH selected wishing lanes
@@ -1613,22 +1629,25 @@ function handleYearChange(){{
   currentYear=parseInt(s.value);
   AREA_POP=AREA_POP_BY_YEAR[currentYear];
   AREA_EMP=AREA_EMP_BY_YEAR[currentYear];
+  AREA_SCHOOL=AREA_SCHOOL_BY_YEAR[currentYear];
   onParamsChanged();
 }}
 
 function resetWeights(){{
-  ['wEmpSlider','wEduSlider','wTransitSlider'].forEach(id=>document.getElementById(id).value=33);
+  ['wEmpSlider','wEduSlider','wSchoolSlider','wTransitSlider'].forEach(id=>document.getElementById(id).value=25);
   updateWeights();
 }}
 function updateWeights(){{
   const e=parseInt(document.getElementById('wEmpSlider').value);
   const d=parseInt(document.getElementById('wEduSlider').value);
+  const s=parseInt(document.getElementById('wSchoolSlider').value);
   const t=parseInt(document.getElementById('wTransitSlider').value);
-  const total=e+d+t;
-  if(total===0){{wEmp=1;wEdu=0;wTransit=0;}}
-  else{{wEmp=e/total;wEdu=d/total;wTransit=t/total;}}
+  const total=e+d+s+t;
+  if(total===0){{wEmp=1;wEdu=0;wSchool=0;wTransit=0;}}
+  else{{wEmp=e/total;wEdu=d/total;wSchool=s/total;wTransit=t/total;}}
   document.getElementById('wEmpVal').textContent=Math.round(wEmp*100)+'%';
   document.getElementById('wEduVal').textContent=Math.round(wEdu*100)+'%';
+  document.getElementById('wSchoolVal').textContent=Math.round(wSchool*100)+'%';
   document.getElementById('wTransitVal').textContent=Math.round(wTransit*100)+'%';
   onParamsChanged();
 }}
@@ -1647,6 +1666,7 @@ function onParamsChanged(){{
   baselineYear=null;
   baselineWEmp=null;
   baselineWEdu=null;
+  baselineWSchool=null;
   baselineWTransit=null;
   refresh();
   updateComputePanel();
@@ -1811,11 +1831,12 @@ areasLyr=L.geoJSON(AREAS,{{
       let html="<b>"+name+"</b><br>"+
         "Pop: "+Math.round(AREA_POP[aid]).toLocaleString()+"<br>"+
         "Emp: "+Math.round(AREA_EMP[aid]).toLocaleString()+
-        (AREA_STUDENTS[aid]>0?"<br>Students: "+Math.round(AREA_STUDENTS[aid]).toLocaleString():"")+
-        (AREA_TRANSIT[aid]>0?"<br>Transit: "+Math.round(AREA_TRANSIT[aid]).toLocaleString()+" daily":"");
+        (AREA_STUDENTS[aid]>0?"<br>University: "+Math.round(AREA_STUDENTS[aid]).toLocaleString():"")+
+        (AREA_SCHOOL[aid]>0?"<br>Schools: "+Math.round(AREA_SCHOOL[aid]).toLocaleString()+" pupils":"")+
+        (AREA_TRANSIT[aid]>0?"<br>Transit: "+Math.round(AREA_TRANSIT[aid]).toLocaleString()+" trips/day":"");
       html+="<hr style='margin:4px 0'>";
       // Show baseline
-      if(baselineAcc && baselineK===currentK && baselineTheta===currentTheta && baselineYear===currentYear && baselineWEmp===wEmp && baselineWEdu===wEdu && baselineWTransit===wTransit){{
+      if(baselineAcc && baselineK===currentK && baselineTheta===currentTheta && baselineYear===currentYear && baselineWEmp===wEmp && baselineWEdu===wEdu && baselineWSchool===wSchool && baselineWTransit===wTransit){{
         const baseAcc=(mode==="dest")?baselineAcc.dest:baselineAcc.orig;
         html+="Baseline: "+baseAcc[aid].toFixed(1)+"<br>";
         // Show computed and change if available
@@ -2008,7 +2029,7 @@ function updateAreaColors(){{
   let acc=null;
   if(computedAcc && computedK===currentK && computedTheta===currentTheta && computedYear===currentYear){{
     acc=(mode==="dest")?computedAcc.dest:computedAcc.orig;
-  }}else if(baselineAcc && baselineK===currentK && baselineTheta===currentTheta && baselineYear===currentYear && baselineWEmp===wEmp && baselineWEdu===wEdu && baselineWTransit===wTransit){{
+  }}else if(baselineAcc && baselineK===currentK && baselineTheta===currentTheta && baselineYear===currentYear && baselineWEmp===wEmp && baselineWEdu===wEdu && baselineWSchool===wSchool && baselineWTransit===wTransit){{
     acc=(mode==="dest")?baselineAcc.dest:baselineAcc.orig;
   }}
 
@@ -2412,6 +2433,7 @@ function computeBaseline(){{
   baselineYear=currentYear;
   baselineWEmp=wEmp;
   baselineWEdu=wEdu;
+  baselineWSchool=wSchool;
   baselineWTransit=wTransit;
 }}
 
@@ -2458,7 +2480,7 @@ function computeAccessibility(){{
 
         let improvementPct=0;
         let baselineN=0;
-        if(baselineAcc && baselineK===k && baselineTheta===theta && baselineYear===currentYear && baselineWEmp===wEmp && baselineWEdu===wEdu && baselineWTransit===wTransit){{
+        if(baselineAcc && baselineK===k && baselineTheta===theta && baselineYear===currentYear && baselineWEmp===wEmp && baselineWEdu===wEdu && baselineWSchool===wSchool && baselineWTransit===wTransit){{
           baselineN=baselineAcc.totalN;
           if(baselineN>0){{
             improvementPct=100*(totalN-baselineN)/baselineN;
@@ -3683,7 +3705,7 @@ computeAccessibility=function(){{
 
         let improvementPct=0;
         let baselineN=0;
-        if(baselineAcc && baselineK===k && baselineTheta===theta && baselineYear===currentYear && baselineWEmp===wEmp && baselineWEdu===wEdu && baselineWTransit===wTransit){{
+        if(baselineAcc && baselineK===k && baselineTheta===theta && baselineYear===currentYear && baselineWEmp===wEmp && baselineWEdu===wEdu && baselineWSchool===wSchool && baselineWTransit===wTransit){{
           baselineN=baselineAcc.totalN;
           if(baselineN>0){{
             improvementPct=100*(totalN-baselineN)/baselineN;
